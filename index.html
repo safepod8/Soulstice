@@ -22,7 +22,7 @@
 
         #game-container {
             position: relative;
-            box-shadow: 0 0 80px rgba(6, 182, 212, 0.15);
+            box-shadow: 0 0 80px rgba(6, 182, 212, 0.2);
             background: #000;
             border-radius: 4px;
             overflow: hidden;
@@ -43,26 +43,37 @@
             justify-content: space-between;
             pointer-events: none;
             text-shadow: 2px 2px 0px #000;
+            z-index: 10;
         }
 
-        .level-text { font-size: 24px; color: #fff; font-weight: bold; }
+        .level-text { font-size: 24px; color: #fff; font-weight: bold; letter-spacing: 2px; }
         .timer-text { font-size: 24px; color: #2dd4bf; }
         
-        #intro {
+        #overlay {
             position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0,0,0,0.9);
+            z-index: 20;
             text-align: center;
-            background: rgba(0,0,0,0.85);
-            padding: 20px 40px;
-            border: 2px solid #06b6d4;
-            border-radius: 8px;
-            pointer-events: none;
-            transition: opacity 0.3s;
         }
         
-        .sub { color: #94a3b8; font-size: 14px; margin-top: 10px; }
-        .highlight { color: #f43f5e; }
+        .btn {
+            margin-top: 20px;
+            padding: 12px 30px;
+            background: #06b6d4;
+            color: #fff;
+            border: none;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 18px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .btn:hover { background: #22d3ee; }
+        .sub { color: #94a3b8; font-size: 14px; margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -75,12 +86,11 @@
         <div class="timer-text" id="time-disp">00:00.00</div>
     </div>
 
-    <div id="intro">
-        <h1 style="margin:0; color:#06b6d4;">SOULSTOTION: HOOKSHOT</h1>
-        <div class="sub">A/D or LEFT/RIGHT to Move</div>
-        <div class="sub">MOUSE CLICK & HOLD to Grapple</div>
-        <div class="sub">Swing with momentum. Avoid <span class="highlight">Red Spikes</span>.</div>
-        <div style="margin-top: 20px; font-weight: bold; color: #fde047;">CLICK TO START</div>
+    <div id="overlay">
+        <h1 id="ov-title" style="margin:0; color:#06b6d4; font-size: 42px;">SOULSTOTION</h1>
+        <p id="ov-body" class="sub">CLICK & HOLD TO GRAPPLE SYNCED WALLS</p>
+        <button class="btn" id="start-btn" onclick="startGame()">START SYSTEM</button>
+        <div id="stats-final" style="display:none; margin-top:15px; color:#2dd4bf;"></div>
     </div>
 </div>
 
@@ -88,443 +98,303 @@
     const canvas = document.getElementById('c');
     const ctx = canvas.getContext('2d', { alpha: false });
     
-    // Internal Native Resolution
     const W = 800;
     const H = 450;
     canvas.width = W;
     canvas.height = H;
 
-    // Maintain aspect ratio scaling
     const scale = Math.min(window.innerWidth / W, window.innerHeight / H) * 0.9;
     canvas.style.width = (W * scale) + 'px';
     canvas.style.height = (H * scale) + 'px';
 
-    // --- GAME STATE ---
-    let state = 'MENU'; // MENU, PLAY, WIN
+    // --- GAME ENGINE ---
+    let gameState = 'MENU';
     let frame = 0;
     let startTime = 0;
     let levelIndex = 0;
-    let deathCount = 0;
+    let deaths = 0;
     let particles = [];
     let trails = [];
     let screenShake = 0;
 
-    // --- INPUT ---
     const keys = {};
     const mouse = { x: 0, y: 0, down: false };
 
     window.addEventListener('keydown', e => keys[e.code] = true);
     window.addEventListener('keyup', e => keys[e.code] = false);
-    
     canvas.addEventListener('mousemove', e => {
         const rect = canvas.getBoundingClientRect();
         mouse.x = (e.clientX - rect.left) / scale;
         mouse.y = (e.clientY - rect.top) / scale;
     });
+    canvas.addEventListener('mousedown', () => { if(gameState === 'PLAY') { mouse.down = true; fireGrapple(); } });
+    canvas.addEventListener('mouseup', () => { mouse.down = false; player.grapple.active = false; });
 
-    canvas.addEventListener('mousedown', () => {
-        if (state === 'MENU') {
-            state = 'PLAY';
-            document.getElementById('intro').style.opacity = 0;
-            startTime = Date.now();
-            loadLevel(0);
-        } else if (state === 'PLAY') {
-            mouse.down = true;
-            fireGrapple();
-        }
-    });
-
-    canvas.addEventListener('mouseup', () => {
-        mouse.down = false;
-        player.grapple.active = false;
-    });
-
-    // --- PHYSICS & PLAYER ---
     const player = {
-        x: 0, y: 0,
-        vx: 0, vy: 0,
-        w: 16, h: 16,
-        color: '#0ea5e9',
+        x: 0, y: 0, vx: 0, vy: 0, w: 16, h: 16, color: '#0ea5e9',
         grounded: false,
-        grapple: { active: false, x: 0, y: 0, len: 0, pullSpeed: 2 }
+        grapple: { active: false, x: 0, y: 0, len: 0 }
     };
 
-    const GRAVITY = 0.4;
-    const FRICTION = 0.85;
-    const AIR_RESIST = 0.98;
+    const GRAVITY = 0.38;
+    const FRICTION = 0.82;
+    const AIR_RES = 0.985;
 
-    // --- LEVELS ---
-    // w: walls, s: spikes, g: goal, p: spawn
+    // --- LEVEL DESIGN ---
     const levels = [
-        { // Lvl 1: The Gap
-            p: {x: 50, y: 300},
-            g: {x: 700, y: 250, w: 50, h: 100},
-            w: [ {x: 0, y: 350, w: 200, h: 100}, {x: 650, y: 350, w: 150, h: 100}, {x: 300, y: 50, w: 200, h: 50} ],
-            s: [ {x: 200, y: 430, w: 450, h: 20} ]
+        { // 1: Intro
+            p: {x: 60, y: 350}, g: {x: 720, y: 320, w: 40, h: 80},
+            w: [{x: 0, y: 400, w: 200, h: 50}, {x: 600, y: 400, w: 200, h: 50}, {x: 300, y: 50, w: 200, h: 40}],
+            s: [{x: 200, y: 440, w: 400, h: 10}]
         },
-        { // Lvl 2: Tarzan
-            p: {x: 50, y: 300},
-            g: {x: 700, y: 50, w: 50, h: 100},
-            w: [ {x: 0, y: 350, w: 150, h: 100}, {x: 650, y: 150, w: 150, h: 300}, 
-                 {x: 200, y: 50, w: 50, h: 50}, {x: 400, y: 150, w: 50, h: 50} ],
-            s: [ {x: 150, y: 430, w: 500, h: 20} ]
+        { // 2: Climb
+            p: {x: 100, y: 350}, g: {x: 100, y: 30, w: 60, h: 40},
+            w: [{x: 0, y: 400, w: 800, h: 50}, {x: 400, y: 200, w: 40, h: 40}, {x: 200, y: 100, w: 40, h: 40}, {x: 0, y: 0, w: 800, h: 20}],
+            s: [{x: 150, y: 390, w: 650, h: 10}]
         },
-        { // Lvl 3: The Drop
-            p: {x: 50, y: 50},
-            g: {x: 700, y: 350, w: 50, h: 50},
-            w: [ {x: 0, y: 100, w: 150, h: 350}, {x: 300, y: 250, w: 100, h: 200}, {x: 650, y: 400, w: 150, h: 50} ],
-            s: [ {x: 150, y: 430, w: 150, h: 20}, {x: 400, y: 430, w: 250, h: 20}, {x: 300, y: 230, w: 100, h: 20} ]
+        { // 3: Precision
+            p: {x: 50, y: 50}, g: {x: 720, y: 350, w: 40, h: 40},
+            w: [{x: 0, y: 0, w: 150, h: 150}, {x: 300, y: 200, w: 50, h: 50}, {x: 500, y: 100, w: 50, h: 50}, {x: 700, y: 400, w: 100, h: 50}],
+            s: [{x: 0, y: 440, w: 700, h: 10}, {x: 250, y: 200, w: 10, h: 50}]
         },
-        { // Lvl 4: Momentum
-            p: {x: 50, y: 350},
-            g: {x: 50, y: 50, w: 50, h: 50},
-            w: [ {x: 0, y: 400, w: 150, h: 50}, {x: 350, y: 150, w: 100, h: 300}, {x: 0, y: 100, w: 150, h: 50} ],
-            s: [ {x: 150, y: 430, w: 650, h: 20}, {x: 330, y: 150, w: 20, h: 300}, {x: 450, y: 150, w: 20, h: 300} ]
+        { // 4: The Pendulum
+            p: {x: 50, y: 350}, g: {x: 700, y: 50, w: 40, h: 40},
+            w: [{x: 0, y: 400, w: 100, h: 50}, {x: 350, y: 0, w: 100, h: 40}, {x: 650, y: 100, w: 150, h: 30}],
+            s: [{x: 100, y: 430, w: 700, h: 20}]
         },
-        { // Lvl 5: Spider-Bot
-            p: {x: 50, y: 300},
-            g: {x: 700, y: 300, w: 50, h: 50},
-            w: [ {x: 0, y: 350, w: 100, h: 100}, {x: 700, y: 350, w: 100, h: 100},
-                 {x: 200, y: 0, w: 50, h: 200}, {x: 350, y: 250, w: 50, h: 200}, {x: 500, y: 0, w: 50, h: 200}],
-            s: [ {x: 100, y: 430, w: 600, h: 20}, {x: 200, y: 200, w: 50, h: 20}, {x: 500, y: 200, w: 50, h: 20} ]
+        { // 5: Spider Cave
+            p: {x: 400, y: 400}, g: {x: 400, y: 40, w: 40, h: 40},
+            w: [{x: 350, y: 430, w: 100, h: 20}, {x: 0, y: 0, w: 50, h: 450}, {x: 750, y: 0, w: 50, h: 450}, {x: 200, y: 200, w: 400, h: 20}],
+            s: [{x: 50, y: 440, w: 300, h: 10}, {x: 450, y: 440, w: 300, h: 10}, {x: 200, y: 190, w: 400, h: 10}]
+        },
+        { // 6: Moving Sync
+            p: {x: 50, y: 350}, g: {x: 720, y: 350, w: 40, h: 40},
+            w: [{x: 0, y: 400, w: 100, h: 50}, {x: 700, y: 400, w: 100, h: 50}],
+            m: [{x: 300, y: 50, w: 200, h: 30, x1: 200, x2: 400, speed: 0.05}], // Moving platform
+            s: [{x: 100, y: 440, w: 600, h: 10}]
+        },
+        { // 7: Slingshot
+            p: {x: 400, y: 400}, g: {x: 400, y: 10, w: 200, h: 20},
+            w: [{x: 350, y: 430, w: 100, h: 20}, {x: 0, y: 150, w: 300, h: 30}, {x: 500, y: 150, w: 300, h: 30}],
+            s: [{x: 0, y: 440, w: 800, h: 10}, {x: 300, y: 150, w: 200, h: 30}]
+        },
+        { // 8: The Tunnel
+            p: {x: 20, y: 220}, g: {x: 760, y: 220, w: 20, h: 40},
+            w: [{x: 0, y: 0, w: 800, h: 180}, {x: 0, y: 270, w: 800, h: 180}],
+            s: [{x: 100, y: 180, w: 20, h: 90}, {x: 300, y: 180, w: 20, h: 90}, {x: 500, y: 180, w: 20, h: 90}]
+        },
+        { // 9: Floating Isles
+            p: {x: 50, y: 50}, g: {x: 50, y: 400, w: 40, h: 40},
+            w: [{x: 0, y: 100, w: 100, h: 20}, {x: 300, y: 100, w: 50, h: 50}, {x: 600, y: 200, w: 50, h: 50}, {x: 300, y: 300, w: 50, h: 50}, {x: 0, y: 440, w: 100, h: 10}],
+            s: [{x: 0, y: 0, w: 800, h: 5}, {x: 100, y: 440, w: 700, h: 10}]
+        },
+        { // 10: Final Descent
+            p: {x: 400, y: 20}, g: {x: 400, y: 400, w: 60, h: 20},
+            w: [{x: 350, y: 0, w: 100, h: 30}, {x: 0, y: 100, w: 300, h: 20}, {x: 500, y: 100, w: 300, h: 20}, {x: 0, y: 300, w: 300, h: 20}, {x: 500, y: 300, w: 300, h: 20}, {x: 350, y: 430, w: 100, h: 20}],
+            m: [{x: 380, y: 200, w: 40, h: 40, x1: 100, x2: 700, speed: 0.1}],
+            s: [{x: 0, y: 120, w: 800, h: 180}]
         }
     ];
 
     let curLvl = null;
 
+    function startGame() {
+        gameState = 'PLAY';
+        document.getElementById('overlay').style.display = 'none';
+        startTime = Date.now();
+        levelIndex = 0;
+        deaths = 0;
+        loadLevel(0);
+    }
+
     function loadLevel(idx) {
-        if (idx >= levels.length) {
-            state = 'WIN';
-            document.getElementById('lvl-disp').innerText = "SYSTEM CLEAR";
-            document.getElementById('lvl-disp').style.color = "#fde047";
-            return;
-        }
+        if(idx >= levels.length) { winGame(); return; }
         levelIndex = idx;
-        curLvl = levels[idx];
-        player.x = curLvl.p.x;
-        player.y = curLvl.p.y;
+        curLvl = JSON.parse(JSON.stringify(levels[idx])); // Deep copy for moving objects
+        player.x = curLvl.p.x; player.y = curLvl.p.y;
         player.vx = 0; player.vy = 0;
         player.grapple.active = false;
         particles = []; trails = [];
-        document.getElementById('lvl-disp').innerText = `SECTOR 0${idx + 1}`;
-        createParticles(player.x + 8, player.y + 8, '#0ea5e9', 30);
+        document.getElementById('lvl-disp').innerText = `SECTOR ${String(idx + 1).padStart(2, '0')}`;
         screenShake = 10;
+        createParticles(player.x+8, player.y+8, '#0ea5e9', 30);
+    }
+
+    function winGame() {
+        gameState = 'WIN';
+        document.getElementById('overlay').style.display = 'flex';
+        document.getElementById('ov-title').innerText = "SYSTEM RESTORED";
+        document.getElementById('ov-title').style.color = "#2dd4bf";
+        document.getElementById('ov-body').innerText = "ALL SECTORS CLEARED";
+        let finalTime = document.getElementById('time-disp').innerText;
+        document.getElementById('stats-final').style.display = 'block';
+        document.getElementById('stats-final').innerText = `TIME: ${finalTime} | DEATHS: ${deaths}`;
+        document.getElementById('start-btn').innerText = "REBOOT SYSTEM";
     }
 
     function die() {
-        deathCount++;
-        createParticles(player.x + 8, player.y + 8, '#f43f5e', 50);
+        deaths++;
         screenShake = 15;
-        // Instant respawn juice
-        player.x = curLvl.p.x;
-        player.y = curLvl.p.y;
+        createParticles(player.x+8, player.y+8, '#f43f5e', 40);
+        player.x = curLvl.p.x; player.y = curLvl.p.y;
         player.vx = 0; player.vy = 0;
         player.grapple.active = false;
         mouse.down = false;
     }
 
-    // --- GRAPPLE LOGIC (Raycasting) ---
     function fireGrapple() {
-        // Shoot ray from player to mouse
-        let dx = mouse.x - (player.x + player.w/2);
-        let dy = mouse.y - (player.y + player.h/2);
+        let dx = mouse.x - (player.x + 8);
+        let dy = mouse.y - (player.y + 8);
         let angle = Math.atan2(dy, dx);
+        let sx = Math.cos(angle)*6;
+        let sy = Math.sin(angle)*6;
+        let tx = player.x+8, ty = player.y+8;
         
-        let stepX = Math.cos(angle) * 5;
-        let stepY = Math.sin(angle) * 5;
-        
-        let testX = player.x + player.w/2;
-        let testY = player.y + player.h/2;
-        let hit = false;
-
-        // Max grapple range 600px
-        for(let i=0; i<120; i++) {
-            testX += stepX; testY += stepY;
-            
-            // Check walls
-            for(let w of curLvl.w) {
-                if(testX >= w.x && testX <= w.x+w.w && testY >= w.y && testY <= w.y+w.h) {
-                    player.grapple.x = testX;
-                    player.grapple.y = testY;
+        for(let i=0; i<150; i++) {
+            tx += sx; ty += sy;
+            // Check Walls
+            let hit = false;
+            let allWalls = [...curLvl.w, ...(curLvl.m || [])];
+            for(let w of allWalls) {
+                if(tx >= w.x && tx <= w.x+w.w && ty >= w.y && ty <= w.y+w.h) {
+                    player.grapple.x = tx; player.grapple.y = ty;
                     player.grapple.active = true;
-                    player.grapple.len = Math.hypot(player.grapple.x - (player.x+8), player.grapple.y - (player.y+8));
-                    hit = true;
-                    createParticles(testX, testY, '#2dd4bf', 15);
-                    screenShake = 3;
-                    break;
+                    player.grapple.len = Math.hypot(tx-(player.x+8), ty-(player.y+8));
+                    hit = true; break;
                 }
             }
-            if(hit) break;
+            if(hit) { createParticles(tx, ty, '#2dd4bf', 10); break; }
         }
     }
 
-    // --- GAME LOOP ---
     function update() {
-        if (state !== 'PLAY') return;
+        if(gameState !== 'PLAY') return;
         frame++;
+        if(screenShake > 0) screenShake--;
 
         // Timer
         let elapsed = Date.now() - startTime;
-        let mins = Math.floor(elapsed / 60000);
-        let secs = Math.floor((elapsed % 60000) / 1000);
-        let ms = Math.floor((elapsed % 1000) / 10);
-        document.getElementById('time-disp').innerText = 
-            `${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}.${ms.toString().padStart(2,'0')}`;
+        let ms = Math.floor((elapsed%1000)/10);
+        let sc = Math.floor((elapsed/1000)%60);
+        let mn = Math.floor(elapsed/60000);
+        document.getElementById('time-disp').innerText = `${mn.toString().padStart(2,'0')}:${sc.toString().padStart(2,'0')}.${ms.toString().padStart(2,'0')}`;
 
-        if (screenShake > 0) screenShake--;
-
-        // Ground Movement
-        if (keys['ArrowRight'] || keys['KeyD']) {
-            player.vx += player.grounded ? 1.5 : 0.4;
-        }
-        if (keys['ArrowLeft'] || keys['KeyA']) {
-            player.vx -= player.grounded ? 1.5 : 0.4;
+        // Moving Platforms logic
+        if(curLvl.m) {
+            curLvl.m.forEach(m => {
+                m.x = m.x1 + (Math.sin(frame * m.speed) + 1) * 0.5 * (m.x2 - m.x1);
+            });
         }
 
-        // Apply Gravity
+        // Input
+        if(keys['ArrowRight'] || keys['KeyD']) player.vx += player.grounded ? 0.8 : 0.3;
+        if(keys['ArrowLeft'] || keys['KeyA']) player.vx -= player.grounded ? 0.8 : 0.3;
+
         player.vy += GRAVITY;
 
-        // GRAPPLE PHYSICS (Verlet constraint)
-        if (player.grapple.active) {
-            let px = player.x + player.w/2;
-            let py = player.y + player.h/2;
-            let dx = px - player.grapple.x;
-            let dy = py - player.grapple.y;
+        if(player.grapple.active) {
+            let px = player.x+8, py = player.y+8;
+            let dx = px - player.grapple.x, dy = py - player.grapple.y;
             let dist = Math.hypot(dx, dy);
-
-            if (dist > player.grapple.len) {
-                // Pull back to rope length circumference
-                let nx = dx / dist;
-                let ny = dy / dist;
-                player.x = player.grapple.x + nx * player.grapple.len - player.w/2;
-                player.y = player.grapple.y + ny * player.grapple.len - player.h/2;
-
-                // Adjust velocity to flow along the tangent
+            if(dist > player.grapple.len) {
+                let nx = dx/dist, ny = dy/dist;
+                player.x = player.grapple.x + nx * player.grapple.len - 8;
+                player.y = player.grapple.y + ny * player.grapple.len - 8;
                 let dot = player.vx * nx + player.vy * ny;
-                player.vx -= dot * nx;
-                player.vy -= dot * ny;
-
-                // Add "swing" momentum based on inputs
-                if (keys['ArrowRight'] || keys['KeyD']) player.vx += ny * 0.8;
-                if (keys['ArrowLeft'] || keys['KeyA']) player.vx -= ny * 0.8;
-                
-                // Allow retracting rope slightly
-                if (keys['KeyW'] || keys['ArrowUp']) player.grapple.len = Math.max(20, player.grapple.len - 3);
+                player.vx -= dot * nx; player.vy -= dot * ny;
+                if(keys['KeyW'] || keys['ArrowUp']) player.grapple.len = Math.max(10, player.grapple.len - 4);
+                if(keys['KeyS'] || keys['ArrowDown']) player.grapple.len = Math.min(600, player.grapple.len + 4);
             }
-            // Air friction while swinging
-            player.vx *= 0.99; player.vy *= 0.99;
+            player.vx *= 0.992; player.vy *= 0.992;
         } else {
-            // Normal friction
-            if (player.grounded) player.vx *= FRICTION;
-            else { player.vx *= AIR_RESIST; player.vy *= AIR_RESIST; }
+            if(player.grounded) player.vx *= FRICTION; else player.vx *= AIR_RES;
         }
 
-        // Terminal velocity
-        player.vx = Math.max(-12, Math.min(12, player.vx));
-        player.vy = Math.max(-15, Math.min(15, player.vy));
+        player.vx = Math.min(15, Math.max(-15, player.vx));
+        player.x += player.vx; player.y += player.vy;
 
-        // Movement Step
-        player.x += player.vx;
-        player.y += player.vy;
-
-        // COLLISION (AABB)
+        // Collision
         player.grounded = false;
+        if(player.y > H + 100) die();
         
-        // Bounds
-        if(player.y > H + 50) die(); // Fall in pit
-        if(player.x < 0) { player.x = 0; player.vx *= -0.5; }
-        if(player.x > W - player.w) { player.x = W - player.w; player.vx *= -0.5; }
-
-        // Walls
-        for (let w of curLvl.w) {
-            // Simple resolution logic
-            if (player.x < w.x + w.w && player.x + player.w > w.x &&
-                player.y < w.y + w.h && player.y + player.h > w.y) {
-                
-                // Determine overlaps
-                let overlapX = Math.min(player.x + player.w - w.x, w.x + w.w - player.x);
-                let overlapY = Math.min(player.y + player.h - w.y, w.y + w.h - player.y);
-
-                if (overlapX < overlapY) {
-                    if (player.x < w.x) { player.x = w.x - player.w; player.vx = 0; }
-                    else { player.x = w.x + w.w; player.vx = 0; }
+        let allWalls = [...curLvl.w, ...(curLvl.m || [])];
+        for(let w of allWalls) {
+            if(player.x < w.x+w.w && player.x+player.w > w.x && player.y < w.y+w.h && player.y+player.h > w.y) {
+                let ox = Math.min(player.x+player.w-w.x, w.x+w.w-player.x);
+                let oy = Math.min(player.y+player.h-w.y, w.y+w.h-player.y);
+                if(ox < oy) {
+                    if(player.x < w.x) player.x = w.x-player.w; else player.x = w.x+w.w;
+                    player.vx = 0;
                 } else {
-                    if (player.y < w.y) { player.y = w.y - player.h; player.vy = 0; player.grounded = true; }
-                    else { player.y = w.y + w.h; player.vy = 0; }
+                    if(player.y < w.y) { player.y = w.y-player.h; player.vy = 0; player.grounded = true; }
+                    else { player.y = w.y+w.h; player.vy = 0; }
                 }
             }
         }
 
-        // Spikes
-        for (let s of curLvl.s) {
-            if (player.x < s.x + s.w - 2 && player.x + player.w > s.x + 2 &&
-                player.y < s.y + s.h - 2 && player.y + player.h > s.y + 2) {
-                die();
-            }
+        for(let s of curLvl.s) {
+            if(player.x < s.x+s.w-4 && player.x+player.w > s.x+4 && player.y < s.y+s.h-4 && player.y+player.h > s.y+4) die();
         }
 
-        // Goal
         let g = curLvl.g;
-        if (player.x < g.x + g.w && player.x + player.w > g.x &&
-            player.y < g.y + g.h && player.y + player.h > g.y) {
-            loadLevel(levelIndex + 1);
-        }
+        if(player.x < g.x+g.w && player.x+player.w > g.x && player.y < g.y+g.h && player.y+player.h > g.y) loadLevel(levelIndex+1);
 
-        // Trail Juice
-        if (frame % 3 === 0 && (Math.abs(player.vx) > 3 || Math.abs(player.vy) > 3)) {
-            trails.push({ x: player.x, y: player.y, w: player.w, h: player.h, life: 1, 
-                          vx: player.vx, vy: player.vy });
-        }
-        
-        // Effects update
-        trails.forEach((t, i) => { t.life -= 0.05; if(t.life<=0) trails.splice(i,1); });
-        particles.forEach((p, i) => { 
-            p.vy += GRAVITY * 0.5; p.x+=p.vx; p.y+=p.vy; p.life-=0.02; 
-            if(p.life<=0) particles.splice(i,1); 
-        });
+        if(frame%4===0 && Math.hypot(player.vx, player.vy) > 2) trails.push({x: player.x, y: player.y, l: 1});
+        trails.forEach((t,i) => { t.l -= 0.08; if(t.l<=0) trails.splice(i,1); });
+        particles.forEach((p,i) => { p.x+=p.vx; p.y+=p.vy; p.l-=0.02; if(p.l<=0) particles.splice(i,1); });
     }
 
-    function createParticles(x, y, color, amt) {
-        for(let i=0; i<amt; i++) {
-            particles.push({
-                x, y, vx: (Math.random()-0.5)*8, vy: (Math.random()-0.5)*8, life: 1, c: color
-            });
-        }
+    function createParticles(x,y,c,a) {
+        for(let i=0; i<a; i++) particles.push({x,y,vx:(Math.random()-0.5)*10,vy:(Math.random()-0.5)*10,l:1,c});
     }
 
-    // --- RENDER LOOP ---
     function draw() {
-        // Deep Space Background
-        ctx.fillStyle = '#05050a';
-        ctx.fillRect(0, 0, W, H);
-
+        ctx.fillStyle = '#050508'; ctx.fillRect(0,0,W,H);
         ctx.save();
-        if (screenShake > 0) {
-            ctx.translate((Math.random()-0.5)*screenShake, (Math.random()-0.5)*screenShake);
-        }
+        if(screenShake > 0) ctx.translate((Math.random()-0.5)*screenShake, (Math.random()-0.5)*screenShake);
 
-        // Draw Grid Background
-        ctx.strokeStyle = '#1e1e2f';
-        ctx.lineWidth = 1;
-        for(let i=0; i<W; i+=40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,H); ctx.stroke(); }
-        for(let i=0; i<H; i+=40) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(W,i); ctx.stroke(); }
-
-        if (state === 'PLAY' && curLvl) {
-            // Draw Goal (Neon Green)
-            ctx.fillStyle = '#22c55e';
-            ctx.shadowColor = '#22c55e';
-            ctx.shadowBlur = 15;
+        if(gameState === 'PLAY') {
+            // Draw Level
+            ctx.fillStyle = '#16a34a'; ctx.shadowBlur = 10; ctx.shadowColor = '#16a34a';
             ctx.fillRect(curLvl.g.x, curLvl.g.y, curLvl.g.w, curLvl.g.h);
             ctx.shadowBlur = 0;
-            
-            // Draw Spikes (Neon Red)
-            ctx.fillStyle = '#f43f5e';
-            for (let s of curLvl.s) {
-                ctx.fillRect(s.x, s.y, s.w, s.h);
-                // Detail teeth
-                ctx.fillStyle = '#9f1239';
-                for(let tx=0; tx<s.w; tx+=10) {
-                    ctx.beginPath(); ctx.moveTo(s.x+tx, s.y); ctx.lineTo(s.x+tx+5, s.y-5); ctx.lineTo(s.x+tx+10, s.y); ctx.fill();
-                }
-                ctx.fillStyle = '#f43f5e';
-            }
 
-            // Draw Walls (Dark blue/grey with neon edges)
-            for (let w of curLvl.w) {
-                ctx.fillStyle = '#1e293b';
-                ctx.fillRect(w.x, w.y, w.w, w.h);
-                ctx.strokeStyle = '#38bdf8';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(w.x, w.y, w.w, w.h);
-            }
-
-            // Draw Grapple Beam
-            if (player.grapple.active) {
-                ctx.beginPath();
-                ctx.moveTo(player.x + player.w/2, player.y + player.h/2);
-                ctx.lineTo(player.grapple.x, player.grapple.y);
-                ctx.strokeStyle = '#2dd4bf';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([5, 5]); // Dashed laser line
-                ctx.lineDashOffset = -frame * 2; // Animate beam
-                ctx.stroke();
-                ctx.setLineDash([]);
-                
-                // Anchor point glow
-                ctx.fillStyle = '#fff';
-                ctx.shadowColor = '#2dd4bf'; ctx.shadowBlur = 10;
-                ctx.beginPath(); ctx.arc(player.grapple.x, player.grapple.y, 4, 0, Math.PI*2); ctx.fill();
-                ctx.shadowBlur = 0;
-            }
-
-            // Draw Trails
-            trails.forEach(t => {
-                ctx.globalAlpha = t.life * 0.5;
-                ctx.fillStyle = player.color;
-                
-                // Rotated trail boxes
-                ctx.save();
-                ctx.translate(t.x + t.w/2, t.y + t.h/2);
-                let ang = Math.atan2(t.vy, t.vx);
-                ctx.rotate(ang);
-                let stretch = 1 + Math.hypot(t.vx, t.vy)*0.1;
-                ctx.scale(stretch, 1/stretch);
-                ctx.fillRect(-t.w/2, -t.h/2, t.w, t.h);
-                ctx.restore();
+            ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2;
+            curLvl.w.forEach(w => { ctx.fillRect(w.x, w.y, w.w, w.h); ctx.strokeRect(w.x, w.y, w.w, w.h); });
+            if(curLvl.m) curLvl.m.forEach(m => { 
+                ctx.fillStyle = '#334155'; ctx.fillRect(m.x, m.y, m.w, m.h); 
+                ctx.strokeStyle = '#2dd4bf'; ctx.strokeRect(m.x, m.y, m.w, m.h); 
             });
+
+            ctx.fillStyle = '#f43f5e'; curLvl.s.forEach(s => {
+                ctx.fillRect(s.x, s.y, s.w, s.h);
+                ctx.fillStyle = '#881337';
+                for(let tx=0; tx<s.w; tx+=10) { ctx.beginPath(); ctx.moveTo(s.x+tx, s.y); ctx.lineTo(s.x+tx+5, s.y-5); ctx.lineTo(s.x+tx+10, s.y); ctx.fill(); }
+                ctx.fillStyle = '#f43f5e';
+            });
+
+            if(player.grapple.active) {
+                ctx.beginPath(); ctx.moveTo(player.x+8, player.y+8); ctx.lineTo(player.grapple.x, player.grapple.y);
+                ctx.strokeStyle = '#2dd4bf'; ctx.lineWidth = 2; ctx.setLineDash([4,4]); ctx.lineDashOffset = -frame*2;
+                ctx.stroke(); ctx.setLineDash([]);
+            }
+
+            trails.forEach(t => { ctx.globalAlpha = t.l*0.3; ctx.fillStyle = player.color; ctx.fillRect(t.x, t.y, 16, 16); });
             ctx.globalAlpha = 1;
 
-            // Draw Player (Juicy Geometry)
-            ctx.save();
-            ctx.translate(player.x + player.w/2, player.y + player.h/2);
-            
-            // Squash and Stretch Math
-            let speed = Math.hypot(player.vx, player.vy);
-            let stretchX = 1 + speed * 0.05;
-            let stretchY = 1 / stretchX;
-            let angle = Math.atan2(player.vy, player.vx);
+            ctx.save(); ctx.translate(player.x+8, player.y+8);
+            let s = Math.hypot(player.vx, player.vy);
+            if(s > 1) { ctx.rotate(Math.atan2(player.vy, player.vx)); ctx.scale(1+s*0.05, 1/(1+s*0.05)); }
+            ctx.fillStyle = player.color; ctx.shadowBlur = 10; ctx.shadowColor = player.color;
+            ctx.fillRect(-8, -8, 16, 16); ctx.fillStyle = '#fff'; ctx.fillRect(player.vx>0?2:-4, -2, 4, 4);
+            ctx.restore(); ctx.shadowBlur = 0;
 
-            if (speed > 1) {
-                ctx.rotate(angle);
-                ctx.scale(stretchX, stretchY);
-            } else if (player.grounded && Math.abs(player.vx) < 0.5) {
-                // Idle breathe
-                let breathe = Math.sin(frame * 0.1) * 0.1;
-                ctx.scale(1 + breathe, 1 - breathe);
-            }
-
-            // Player Body
-            ctx.fillStyle = player.color;
-            ctx.shadowColor = player.color; ctx.shadowBlur = 10;
-            ctx.fillRect(-player.w/2, -player.h/2, player.w, player.h);
-            
-            // Neon Eye / Visor
-            ctx.fillStyle = '#fff'; ctx.shadowBlur = 0;
-            ctx.fillRect((player.vx>0?2:-4), -2, 6, 4);
-
-            ctx.restore();
-
-            // Particles
-            particles.forEach(p => {
-                ctx.globalAlpha = p.life;
-                ctx.fillStyle = p.c;
-                ctx.fillRect(p.x, p.y, 3, 3);
-            });
+            particles.forEach(p => { ctx.globalAlpha = p.l; ctx.fillStyle = p.c; ctx.fillRect(p.x, p.y, 3, 3); });
             ctx.globalAlpha = 1;
         }
-
         ctx.restore();
-
-        // Scanlines
-        ctx.fillStyle = 'rgba(0,0,0,0.1)';
-        for(let i=0; i<H; i+=3) ctx.fillRect(0, i, W, 1);
-
-        requestAnimationFrame(() => {
-            update();
-            draw();
-        });
+        requestAnimationFrame(() => { update(); draw(); });
     }
-
     draw();
 </script>
 </body>
