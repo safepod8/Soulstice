@@ -3,453 +3,323 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nano-Factory: Overdrive</title>
+    <title>BIO-SIGNAL: TERMINAL</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
         
+        :root {
+            --neon-green: #39ff14;
+            --dark-flesh: #1a0f0f;
+            --crt-glow: rgba(57, 255, 20, 0.15);
+        }
+
         body {
             margin: 0;
-            background: #020617;
+            background: #050505;
+            color: var(--neon-green);
+            font-family: 'VT323', monospace;
             display: flex;
-            flex-direction: column;
             justify-content: center;
             align-items: center;
             height: 100vh;
-            color: #94a3b8;
-            font-family: 'JetBrains Mono', monospace;
             overflow: hidden;
             user-select: none;
         }
 
-        #ui-top {
-            width: 640px;
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-            font-size: 14px;
-        }
-
-        #game-container {
+        #terminal {
+            width: 800px;
+            height: 500px;
+            background: #0a0a0a;
+            border: 4px solid #333;
+            box-shadow: 0 0 50px rgba(0,0,0,1), inset 0 0 100px #1a0f0f;
+            display: grid;
+            grid-template-columns: 1fr 280px;
+            padding: 20px;
+            gap: 20px;
             position: relative;
+        }
+
+        /* Scanline Overlay */
+        #terminal::after {
+            content: " ";
+            position: absolute;
+            top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 4px, 3px 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .screen {
             background: #000;
-            border: 2px solid #1e293b;
-            box-shadow: 0 0 40px rgba(0,0,0,0.5);
+            border: 2px solid #222;
+            position: relative;
+            overflow: hidden;
         }
 
-        canvas {
-            display: block;
-            image-rendering: pixelated;
+        #main-scope {
+            height: 300px;
+            box-shadow: inset 0 0 20px var(--crt-glow);
         }
 
-        #toolbar {
-            width: 640px;
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-            background: #0f172a;
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid #334155;
-        }
-
-        .tool {
-            width: 60px;
-            height: 60px;
-            background: #1e293b;
-            border: 2px solid #334155;
-            border-radius: 4px;
+        #control-panel {
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            position: relative;
-        }
-
-        .tool:hover { background: #334155; border-color: #64748b; }
-        .tool.active { background: #0ea5e9; border-color: #fff; color: #fff; }
-        .tool span { font-size: 9px; margin-top: 4px; text-align: center; line-height: 1; }
-        .tool-icon { font-size: 20px; }
-
-        #order-panel {
-            position: absolute;
-            top: 20px;
-            right: -180px;
-            width: 160px;
-            background: rgba(15, 23, 42, 0.9);
-            border: 1px solid #334155;
+            gap: 15px;
             padding: 10px;
-            border-radius: 4px;
-            font-size: 11px;
+            background: #111;
+            border: 1px solid #333;
         }
 
-        .order-item {
-            margin-bottom: 8px;
-            padding-bottom: 4px;
-            border-bottom: 1px solid #1e293b;
+        .status-box {
+            border: 1px solid #444;
+            padding: 10px;
+            font-size: 18px;
         }
 
-        #notification {
+        .danger { color: #ff3131; text-shadow: 0 0 10px #ff3131; }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        input[type=range] {
+            appearance: none;
+            background: #222;
+            height: 10px;
+            border: 1px solid var(--neon-green);
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            appearance: none;
+            width: 15px;
+            height: 25px;
+            background: var(--neon-green);
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--neon-green);
+        }
+
+        #log {
+            height: 120px;
+            font-size: 14px;
+            padding: 5px;
+            overflow-y: hidden;
+            border-top: 1px solid #333;
+            color: #666;
+        }
+
+        .heart {
+            display: inline-block;
+            animation: pulse 0.6s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); color: #ff3131; }
+            100% { transform: scale(1); }
+        }
+
+        #noise {
             position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #10b981;
-            color: #fff;
-            padding: 8px 20px;
-            border-radius: 20px;
-            font-size: 12px;
-            display: none;
-            animation: slideUp 0.3s ease-out;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: url('https://upload.wikimedia.org/wikipedia/commons/7/76/White_noise.png');
+            opacity: 0.05;
+            pointer-events: none;
         }
-
-        @keyframes slideUp { from { bottom: 0; opacity: 0; } to { bottom: 20px; opacity: 1; } }
     </style>
 </head>
 <body>
 
-<div id="ui-top">
-    <div>NANO-CHIPS: <span id="currency" style="color:#0ea5e9">0</span></div>
-    <div>QUOTA: <span id="quota-progress" style="color:#fbbf24">0/50</span></div>
-</div>
+<div id="terminal">
+    <div id="noise"></div>
+    
+    <div class="left-col">
+        <div class="screen" id="main-scope">
+            <canvas id="scopeCanvas"></canvas>
+        </div>
+        <div id="log">
+            > INITIALIZING NEURAL LINK...<br>
+            > ORGANIC MASS DETECTED IN SECTOR 4...<br>
+            > WARNING: SYNC LEVELS DROPPING...
+        </div>
+    </div>
 
-<div id="game-container">
-    <canvas id="c"></canvas>
-    <div id="order-panel">
-        <div style="color:#fff; margin-bottom:10px; border-bottom:1px solid #fff">ACTIVE ORDERS</div>
-        <div id="order-list"></div>
-    </div>
-    <div id="notification">ORDER FULFILLED! +25 Credits</div>
-</div>
+    <div id="control-panel">
+        <div class="status-box">
+            STABILITY: <span id="stability">100%</span>
+            <div id="integrity-bar" style="width:100%; height:4px; background:#222; margin-top:5px;">
+                <div id="integrity-fill" style="width:100%; height:100%; background:var(--neon-green);"></div>
+            </div>
+        </div>
 
-<div id="toolbar">
-    <div class="tool active" onclick="setTool('BELT', this)">
-        <div class="tool-icon">➔</div>
-        <span>BELT<br>(1)</span>
-    </div>
-    <div class="tool" onclick="setTool('EXTRACTOR', this)">
-        <div class="tool-icon">⏻</div>
-        <span>DRILL<br>(5)</span>
-    </div>
-    <div class="tool" onclick="setTool('PROCESSOR', this)">
-        <div class="tool-icon">◪</div>
-        <span>CRAFTER<br>(20)</span>
-    </div>
-    <div class="tool" onclick="setTool('TRASH', this)">
-        <div class="tool-icon">☒</div>
-        <span>RECYCLE<br>(0)</span>
-    </div>
-    <div style="flex-grow:1"></div>
-    <div style="display:flex; flex-direction:column; justify-content:center; align-items:flex-end;">
-        <div style="font-size:10px;">R: ROTATE</div>
-        <div style="font-size:10px;">CLICK: PLACE</div>
+        <div class="slider-group">
+            <label>PULSE FREQUENCY</label>
+            <input type="range" id="freq" min="0.01" max="0.2" step="0.001" value="0.05">
+        </div>
+
+        <div class="slider-group">
+            <label>AMPLITUDE DEPTH</label>
+            <input type="range" id="amp" min="10" max="100" step="1" value="50">
+        </div>
+
+        <div class="slider-group">
+            <label>PHASE SHIFT</label>
+            <input type="range" id="phase" min="0" max="6.28" step="0.01" value="0">
+        </div>
+
+        <div id="alert-zone" style="margin-top: auto; padding: 10px; border: 1px dashed #444; text-align: center;">
+            <span class="heart">❤</span> <span id="sync-label">BIO-SYNC: 0%</span>
+        </div>
+        
+        <button id="reset-btn" style="display:none; background: #ff3131; border:none; color:white; font-family:'VT323'; cursor:pointer; padding:10px;">RE-INITIALIZE SYSTEM</button>
     </div>
 </div>
 
 <script>
-    const canvas = document.getElementById('c');
+    const canvas = document.getElementById('scopeCanvas');
     const ctx = canvas.getContext('2d');
+    const logEl = document.getElementById('log');
     
-    const GRID_SIZE = 32;
-    const COLS = 20;
-    const ROWS = 15;
-    const W = COLS * GRID_SIZE;
-    const H = ROWS * GRID_SIZE;
-    
-    canvas.width = W;
-    canvas.height = H;
+    // UI Refs
+    const freqIn = document.getElementById('freq');
+    const ampIn = document.getElementById('amp');
+    const phaseIn = document.getElementById('phase');
+    const stabilityEl = document.getElementById('stability');
+    const integrityFill = document.getElementById('integrity-fill');
+    const syncLabel = document.getElementById('sync-label');
 
-    // --- GAME STATE ---
-    let currency = 50;
-    let quota = 0;
-    let quotaTarget = 50;
-    let currentTool = 'BELT';
-    let rotation = 0; // 0:R, 1:D, 2:L, 3:U
-    let grid = Array(COLS).fill().map(() => Array(ROWS).fill(null));
-    let items = []; // Moving items on belts
-    let resources = []; // Static ore deposits
-    let frame = 0;
+    let w, h;
+    function resize() {
+        w = canvas.width = canvas.parentElement.clientWidth;
+        h = canvas.height = canvas.parentElement.clientHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
 
-    // --- TYPES ---
-    const BUILDINGS = {
-        BELT: { cost: 1, color: '#0ea5e9' },
-        EXTRACTOR: { cost: 5, color: '#f97316' },
-        PROCESSOR: { cost: 20, color: '#a855f7' }
+    // Game Variables
+    let stability = 100;
+    let time = 0;
+    let playing = true;
+
+    // Target (The creature's signal)
+    let targetSignal = {
+        freq: 0.08,
+        amp: 70,
+        phase: 1.5
     };
 
-    const ORES = {
-        IRON: { color: '#94a3b8', name: 'RAW IRON' },
-        COPPER: { color: '#fb923c', name: 'RAW COPPER' }
-    };
-
-    const PRODUCTS = {
-        GEAR: { color: '#e2e8f0', name: 'IRON GEAR', recipe: 'IRON' },
-        WIRE: { color: '#fde047', name: 'COPPER WIRE', recipe: 'COPPER' }
-    };
-
-    // Generate random resource patches
-    for(let i=0; i<8; i++) {
-        let rx = Math.floor(Math.random() * (COLS-2)) + 1;
-        let ry = Math.floor(Math.random() * (ROWS-2)) + 1;
-        let type = Math.random() > 0.5 ? 'IRON' : 'COPPER';
-        resources.push({x: rx, y: ry, type});
+    function changeTarget() {
+        targetSignal.freq = 0.02 + Math.random() * 0.15;
+        targetSignal.amp = 20 + Math.random() * 70;
+        targetSignal.phase = Math.random() * 6;
+        addLog("> NEURAL SHIFT DETECTED...");
     }
 
-    // --- INPUT ---
-    const mouse = { x: 0, y: 0, gx: 0, gy: 0 };
-    canvas.addEventListener('mousemove', e => {
-        const rect = canvas.getBoundingClientRect();
-        mouse.x = e.clientX - rect.left;
-        mouse.y = e.clientY - rect.top;
-        mouse.gx = Math.floor(mouse.x / GRID_SIZE);
-        mouse.gy = Math.floor(mouse.y / GRID_SIZE);
-    });
-
-    canvas.addEventListener('mousedown', () => {
-        if (mouse.gx < 0 || mouse.gx >= COLS || mouse.gy < 0 || mouse.gy >= ROWS) return;
-        
-        if (currentTool === 'TRASH') {
-            grid[mouse.gx][mouse.gy] = null;
-            return;
-        }
-
-        const b = BUILDINGS[currentTool];
-        if (currency >= b.cost && !grid[mouse.gx][mouse.gy]) {
-            currency -= b.cost;
-            grid[mouse.gx][mouse.gy] = {
-                type: currentTool,
-                rot: rotation,
-                timer: 0,
-                inputSlot: null // for processors
-            };
-            updateUI();
-        }
-    });
-
-    window.addEventListener('keydown', e => {
-        if (e.code === 'KeyR') rotation = (rotation + 1) % 4;
-    });
-
-    function setTool(t, el) {
-        currentTool = t;
-        document.querySelectorAll('.tool').forEach(b => b.classList.remove('active'));
-        el.classList.add('active');
+    function addLog(msg) {
+        const div = document.createElement('div');
+        div.innerHTML = msg;
+        logEl.prepend(div);
     }
 
-    function updateUI() {
-        document.getElementById('currency').innerText = currency;
-        document.getElementById('quota-progress').innerText = `${quota}/${quotaTarget}`;
-    }
+    setInterval(() => {
+        if(playing) changeTarget();
+    }, 8000);
 
-    // --- CORE LOGIC ---
-    function update() {
-        frame++;
-
-        // 1. Building Logic
-        for (let x = 0; x < COLS; x++) {
-            for (let y = 0; y < ROWS; y++) {
-                const b = grid[x][y];
-                if (!b) continue;
-
-                if (b.type === 'EXTRACTOR') {
-                    b.timer++;
-                    if (b.timer > 60) { // Every 1s
-                        const res = resources.find(r => r.x === x && r.y === y);
-                        if (res) {
-                            spawnItem(x, y, res.type, b.rot);
-                            b.timer = 0;
-                        }
-                    }
-                }
-
-                if (b.type === 'PROCESSOR') {
-                    if (b.inputSlot) {
-                        b.timer++;
-                        if (b.timer > 120) { // Every 2s
-                            let output = b.inputSlot === 'IRON' ? 'GEAR' : 'WIRE';
-                            spawnItem(x, y, output, b.rot);
-                            b.inputSlot = null;
-                            b.timer = 0;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Item Movement
-        for (let i = items.length - 1; i >= 0; i--) {
-            const it = items[i];
-            const speed = 1.5;
-            
-            const prevGX = Math.floor(it.x / GRID_SIZE);
-            const prevGY = Math.floor(it.y / GRID_SIZE);
-
-            if (it.dir === 0) it.x += speed;
-            else if (it.dir === 1) it.y += speed;
-            else if (it.dir === 2) it.x -= speed;
-            else if (it.dir === 3) it.y -= speed;
-
-            const gx = Math.floor(it.x / GRID_SIZE);
-            const gy = Math.floor(it.y / GRID_SIZE);
-
-            // Handle transition to new tile
-            if (gx !== prevGX || gy !== prevGY) {
-                // If off map
-                if (gx < 0 || gx >= COLS || gy < 0 || gy >= ROWS) {
-                    // Check if it's a "Shipment" (Right side of screen)
-                    if (gx >= COLS) fulfill(it.type);
-                    items.splice(i, 1);
-                    continue;
-                }
-
-                const b = grid[gx][gy];
-                if (!b || (b.type !== 'BELT' && b.type !== 'PROCESSOR')) {
-                    items.splice(i, 1); // Clogged / Fell off
-                    continue;
-                }
-
-                if (b.type === 'BELT') {
-                    it.dir = b.rot;
-                    // Snap to center
-                    it.x = gx * GRID_SIZE + GRID_SIZE/2;
-                    it.y = gy * GRID_SIZE + GRID_SIZE/2;
-                }
-
-                if (b.type === 'PROCESSOR') {
-                    if (!b.inputSlot && (it.type === 'IRON' || it.type === 'COPPER')) {
-                        b.inputSlot = it.type;
-                        items.splice(i, 1);
-                        continue;
-                    } else {
-                        items.splice(i, 1); // Processor full or wrong item
-                    }
-                }
-            }
-        }
-    }
-
-    function spawnItem(gx, gy, type, rot) {
-        items.push({
-            x: gx * GRID_SIZE + GRID_SIZE/2,
-            y: gy * GRID_SIZE + GRID_SIZE/2,
-            type,
-            dir: rot
-        });
-    }
-
-    function fulfill(type) {
-        let bonus = (type === 'GEAR' || type === 'WIRE') ? 5 : 1;
-        currency += bonus;
-        quota++;
-        if (quota >= quotaTarget) {
-            quotaTarget += 50;
-            showNotif("QUOTA MET! CREDITS GRANTED");
-            currency += 100;
-        }
-        updateUI();
-    }
-
-    function showNotif(txt) {
-        const n = document.getElementById('notification');
-        n.innerText = txt;
-        n.style.display = 'block';
-        setTimeout(() => n.style.display = 'none', 2000);
-    }
-
-    // --- RENDER ---
     function draw() {
-        ctx.fillStyle = '#020617';
-        ctx.fillRect(0, 0, W, H);
+        if(!playing) return;
+        
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+        ctx.fillRect(0, 0, w, h);
+        
+        time += 0.1;
+        
+        const userFreq = parseFloat(freqIn.value);
+        const userAmp = parseFloat(ampIn.value);
+        const userPhase = parseFloat(phaseIn.value);
 
-        // Grid Lines
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 1;
-        for(let x=0; x<=W; x+=GRID_SIZE) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
-        for(let y=0; y<=H; y+=GRID_SIZE) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+        // Calculate Sync
+        const fDiff = Math.abs(userFreq - targetSignal.freq) / 0.2;
+        const aDiff = Math.abs(userAmp - targetSignal.amp) / 100;
+        const pDiff = Math.abs(Math.sin(userPhase) - Math.sin(targetSignal.phase)) / 2;
+        
+        const syncScore = Math.max(0, 100 - (fDiff * 40 + aDiff * 40 + pDiff * 20));
+        syncLabel.innerText = `BIO-SYNC: ${Math.floor(syncScore)}%`;
 
-        // Resources
-        resources.forEach(r => {
-            ctx.fillStyle = ORES[r.type].color;
-            ctx.globalAlpha = 0.3;
-            ctx.fillRect(r.x*GRID_SIZE+4, r.y*GRID_SIZE+4, GRID_SIZE-8, GRID_SIZE-8);
-            ctx.globalAlpha = 1;
-        });
-
-        // Highlight Exit
-        ctx.fillStyle = '#064e3b';
-        ctx.fillRect(W-4, 0, 4, H);
-
-        // Buildings
-        for (let x = 0; x < COLS; x++) {
-            for (let y = 0; y < ROWS; y++) {
-                const b = grid[x][y];
-                if (!b) continue;
-
-                ctx.save();
-                ctx.translate(x*GRID_SIZE+GRID_SIZE/2, y*GRID_SIZE+GRID_SIZE/2);
-                ctx.rotate(b.rot * Math.PI/2);
-
-                if (b.type === 'BELT') {
-                    ctx.fillStyle = '#1e293b';
-                    ctx.fillRect(-GRID_SIZE/2+2, -GRID_SIZE/2+2, GRID_SIZE-4, GRID_SIZE-4);
-                    ctx.fillStyle = '#0ea5e9';
-                    // Animated belt arrow
-                    let offset = (frame % 20) / 20 * GRID_SIZE;
-                    ctx.beginPath();
-                    ctx.moveTo(-10 + (frame%20-10), -5);
-                    ctx.lineTo(0 + (frame%20-10), 0);
-                    ctx.lineTo(-10 + (frame%20-10), 5);
-                    ctx.stroke();
-                } else if (b.type === 'EXTRACTOR') {
-                    ctx.fillStyle = BUILDINGS.EXTRACTOR.color;
-                    ctx.fillRect(-12, -12, 24, 24);
-                    ctx.strokeStyle = '#fff';
-                    ctx.strokeRect(-12, -12, 24, 24);
-                    // Pulsing light
-                    ctx.globalAlpha = 0.5 + Math.sin(frame*0.1)*0.5;
-                    ctx.fillStyle = '#fff';
-                    ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI*2); ctx.fill();
-                } else if (b.type === 'PROCESSOR') {
-                    ctx.fillStyle = BUILDINGS.PROCESSOR.color;
-                    ctx.fillRect(-14, -14, 28, 28);
-                    ctx.fillStyle = b.inputSlot ? '#fff' : '#000';
-                    ctx.fillRect(-10, -10, 20, 5); // Input bar
-                }
-                ctx.restore();
-            }
+        if (syncScore < 70) {
+            stability -= 0.1;
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.05)';
+            ctx.fillRect(0,0,w,h);
+        } else {
+            stability = Math.min(100, stability + 0.05);
         }
 
-        // Items
-        items.forEach(it => {
-            ctx.fillStyle = (ORES[it.type] || PRODUCTS[it.type]).color;
-            ctx.beginPath();
-            ctx.arc(it.x, it.y, 5, 0, Math.PI*2);
-            ctx.fill();
-            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
-        });
+        stabilityEl.innerText = `${Math.floor(stability)}%`;
+        integrityFill.style.width = `${stability}%`;
+        if(stability < 30) {
+            stabilityEl.className = 'danger';
+            if(Math.random() > 0.95) addLog("<span class='danger'>> CRITICAL: SUBJECT BREACH IMMINENT</span>");
+        } else {
+            stabilityEl.className = '';
+        }
 
-        // Hover Preview
-        ctx.strokeStyle = '#fff';
+        if(stability <= 0) gameOver();
+
+        // Draw Waves
+        // 1. Background Grid
+        ctx.strokeStyle = '#111';
+        ctx.lineWidth = 1;
+        for(let i=0; i<w; i+=40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,h); ctx.stroke(); }
+        for(let i=0; i<h; i+=40) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(w,i); ctx.stroke(); }
+
+        // 2. Target Wave (Red/Organic)
+        ctx.beginPath();
+        ctx.strokeStyle = '#411';
+        ctx.lineWidth = 3;
+        for(let x=0; x<w; x++) {
+            const y = h/2 + Math.sin(x * targetSignal.freq + time + targetSignal.phase) * targetSignal.amp;
+            if(x === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+
+        // 3. User Wave (Green/Digital)
+        ctx.beginPath();
+        ctx.strokeStyle = '#39ff14';
         ctx.lineWidth = 2;
-        ctx.setLineDash([4, 2]);
-        ctx.strokeRect(mouse.gx*GRID_SIZE, mouse.gy*GRID_SIZE, GRID_SIZE, GRID_SIZE);
-        ctx.setLineDash([]);
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = '#39ff14';
+        for(let x=0; x<w; x++) {
+            const y = h/2 + Math.sin(x * userFreq + time + userPhase) * userAmp;
+            if(x === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
 
-        // Preview tool
-        ctx.save();
-        ctx.translate(mouse.gx*GRID_SIZE+GRID_SIZE/2, mouse.gy*GRID_SIZE+GRID_SIZE/2);
-        ctx.rotate(rotation * Math.PI/2);
-        ctx.globalAlpha = 0.4;
-        ctx.fillStyle = BUILDINGS[currentTool]?.color || '#fff';
-        if(currentTool !== 'TRASH') ctx.fillRect(-10, -10, 20, 20);
-        ctx.restore();
-
-        update();
         requestAnimationFrame(draw);
     }
 
-    updateUI();
+    function gameOver() {
+        playing = false;
+        ctx.fillStyle = '#1a0f0f';
+        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#ff3131';
+        ctx.font = '40px VT323';
+        ctx.textAlign = 'center';
+        ctx.fillText("SUBJECT BREACHED", w/2, h/2);
+        addLog("<span class='danger'>> TERMINAL OFFLINE. PERSONNEL LOSS DETECTED.</span>");
+        document.getElementById('reset-btn').style.display = 'block';
+    }
+
+    document.getElementById('reset-btn').addEventListener('click', () => {
+        stability = 100;
+        playing = true;
+        document.getElementById('reset-btn').style.display = 'none';
+        logEl.innerHTML = "> SYSTEM REBOOTING...";
+        draw();
+    });
+
     draw();
 </script>
 </body>
