@@ -3,256 +3,609 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VOID-HEART 32-BIT</title>
+    <title>Aethoria: Pixel Quest</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
-
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        
         body {
             margin: 0;
-            background: #1a1a1a;
+            background: #111;
             display: flex;
-            flex-direction: column;
             justify-content: center;
             align-items: center;
             height: 100vh;
             color: #fff;
-            font-family: 'VT323', monospace;
+            font-family: 'Press Start 2P', cursive;
             overflow: hidden;
+            user-select: none;
         }
 
-        /* The scaling container ensures pixels stay sharp */
-        #screen-container {
+        #game-container {
             position: relative;
-            border: 8px solid #334;
-            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+            border: 4px solid #333;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
             background: #000;
-            image-rendering: pixelated;
-            image-rendering: crisp-edges;
         }
 
         canvas {
             display: block;
             image-rendering: pixelated;
-            width: 640px; /* Scaled up view */
-            height: 576px;
         }
 
-        .ui-overlay {
+        /* RPG UI overlay */
+        .ui-layer {
             position: absolute;
-            top: 10px;
-            width: 100%;
-            text-align: center;
+            top: 0; left: 0; right: 0; bottom: 0;
             pointer-events: none;
-            font-size: 24px;
+            padding: 10px;
+        }
+
+        .bar-container {
+            width: 150px;
+            height: 12px;
+            background: #222;
+            border: 2px solid #555;
+            margin-bottom: 5px;
+            position: relative;
+        }
+
+        .hp-fill { background: #e11d48; height: 100%; width: 100%; transition: width 0.1s; }
+        .xp-fill { background: #3b82f6; height: 100%; width: 0%; transition: width 0.2s; }
+
+        .stats-text {
+            font-size: 8px;
+            text-shadow: 1px 1px 0 #000;
+            margin-bottom: 2px;
+            color: #e2e8f0;
+        }
+
+        .gold-display {
+            position: absolute;
+            top: 10px; right: 10px;
+            font-size: 10px;
+            color: #fbbf24;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        #message-box {
+            position: absolute;
+            top: 30%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: rgba(0,0,0,0.8);
+            border: 2px solid #fff;
+            padding: 15px;
+            font-size: 10px;
+            display: none;
+            line-height: 1.5;
         }
 
         .controls-hint {
-            margin-top: 20px;
-            color: #889;
+            position: absolute;
+            bottom: -30px;
+            width: 100%;
             text-align: center;
-            font-size: 20px;
+            font-size: 10px;
+            color: #666;
         }
     </style>
 </head>
 <body>
 
-    <div id="screen-container">
-        <div class="ui-overlay">
-            <span id="hp-label">HP: 20/20</span>
-        </div>
-        <canvas id="g"></canvas>
+<div id="game-container">
+    <canvas id="c"></canvas>
+    
+    <div class="ui-layer">
+        <div class="stats-text">LVL <span id="lvl-txt">1</span> | KNIGHT</div>
+        <div class="bar-container"><div class="hp-fill" id="hp-bar"></div></div>
+        <div class="stats-text" style="color:#93c5fd;">XP</div>
+        <div class="bar-container" style="height: 6px;"><div class="xp-fill" id="xp-bar"></div></div>
+        
+        <div class="gold-display">GOLD: <span id="gold-txt">0</span></div>
     </div>
 
-    <div class="controls-hint">
-        ARROWS: MOVE | Z: START/ACTION
+    <div id="message-box">
+        <div id="msg-title" style="color: #fbbf24; margin-bottom: 10px;">GATE LOCKED</div>
+        <div id="msg-desc">Requires 20 Gold to open.</div>
     </div>
+
+    <div class="controls-hint">WASD/ARROWS: Move | SPACE: Attack</div>
+</div>
 
 <script>
-    // Native internal resolution (low-res for real pixel art)
-    const RES_W = 160;
-    const RES_H = 144;
-    const canvas = document.getElementById('g');
+    // --- ENGINE SETUP ---
+    const canvas = document.getElementById('c');
     const ctx = canvas.getContext('2d', { alpha: false });
-    canvas.width = RES_W;
-    canvas.height = RES_H;
+    
+    // Internal Native Resolution
+    const W = 320;
+    const H = 180;
+    canvas.width = W;
+    canvas.height = H;
 
-    // Disable image smoothing for that 32-bit look
+    // Display Scaling
+    const scale = Math.min(window.innerWidth / W, window.innerHeight / H) * 0.8;
+    canvas.style.width = (W * scale) + 'px';
+    canvas.style.height = (H * scale) + 'px';
     ctx.imageSmoothingEnabled = false;
 
-    let state = 'START';
+    // --- GAME STATE & PROGRESSION ---
     let frame = 0;
-    let hp = 20;
-    let particles = [];
-    let bullets = [];
+    let hitStop = 0;
     let shake = 0;
+    let camX = 0; let camY = 0;
+    
+    // World defines the progression zones
+    const WORLD_W = 1200; 
+    const WORLD_H = 360;
 
-    const player = {
-        x: RES_W / 2,
-        y: RES_H - 30,
-        w: 5,
-        h: 5,
-        speed: 1.5
+    // --- ENTITIES ---
+    const p = {
+        x: 100, y: 180,
+        vx: 0, vy: 0,
+        w: 10, h: 12,
+        speed: 1.8,
+        dirX: 1, dirY: 0,
+        hp: 20, maxHp: 20,
+        xp: 0, maxXp: 15,
+        lvl: 1, gold: 0,
+        dmg: 5,
+        invuln: 0,
+        atkTimer: 0,
+        atkDuration: 15,
+        animWalk: 0
     };
 
+    let enemies = [];
+    let drops = [];
+    let texts = [];
+    let particles = [];
+    
+    // Gates block progression
+    const gates = [
+        { x: 400, y: 0, w: 20, h: WORLD_H, cost: 20, open: false, name: "GRAVEYARD GATE" },
+        { x: 800, y: 0, w: 20, h: WORLD_H, cost: 60, open: false, name: "INFERNO GATE" }
+    ];
+
+    // --- INPUT ---
     const keys = {};
     window.addEventListener('keydown', e => {
         keys[e.code] = true;
-        if(e.code === 'KeyZ' && state !== 'PLAY') startGame();
+        if(e.code === 'Space' && p.atkTimer <= 0) p.atkTimer = p.atkDuration;
     });
     window.addEventListener('keyup', e => keys[e.code] = false);
 
-    function startGame() {
-        state = 'PLAY';
-        hp = 20;
-        bullets = [];
-        frame = 0;
+    // --- SPANWERS ---
+    function spawnEnemy(zoneXMin, zoneXMax, type) {
+        let ex = zoneXMin + Math.random() * (zoneXMax - zoneXMin);
+        let ey = 20 + Math.random() * (WORLD_H - 40);
+        
+        let e = { x: ex, y: ey, vx: 0, vy: 0, w: 12, h: 10, state: 'idle', timer: 0, hitFlash: 0 };
+        
+        if (type === 'slime') {
+            e.hp = 15; e.maxHp = 15; e.dmg = 2; e.color = '#22c55e'; e.speed = 0.8; e.xp = 5; e.gold = 1;
+        } else if (type === 'skeleton') {
+            e.hp = 35; e.maxHp = 35; e.dmg = 5; e.color = '#e2e8f0'; e.speed = 1.2; e.xp = 12; e.gold = 3;
+        } else if (type === 'demon') {
+            e.hp = 80; e.maxHp = 80; e.dmg = 10; e.color = '#dc2626'; e.speed = 1.5; e.xp = 25; e.gold = 8;
+        }
+        e.type = type;
+        enemies.push(e);
     }
 
-    // Helper to draw pixel-art sprites manually
-    function drawPixelSprite(data, x, y, size = 1) {
-        data.forEach((row, dy) => {
-            row.split('').forEach((pixel, dx) => {
-                if (pixel === ' ') return;
-                if (pixel === 'R') ctx.fillStyle = '#f44';
-                if (pixel === 'W') ctx.fillStyle = '#fff';
-                if (pixel === 'B') ctx.fillStyle = '#111';
-                if (pixel === 'G') ctx.fillStyle = '#4f4';
-                if (pixel === 'P') ctx.fillStyle = '#d4f';
-                if (pixel === 'Y') ctx.fillStyle = '#ff0';
-                ctx.fillRect(Math.floor(x + dx * size), Math.floor(y + dy * size), size, size);
+    // Initial Spawns
+    for(let i=0; i<10; i++) spawnEnemy(50, 380, 'slime');
+    for(let i=0; i<12; i++) spawnEnemy(450, 780, 'skeleton');
+    for(let i=0; i<15; i++) spawnEnemy(850, 1150, 'demon');
+
+    // --- JUICE FUNCTIONS ---
+    function spawnDamageText(x, y, amount, color) {
+        texts.push({ x, y, text: amount, life: 40, color: color, vy: -1 });
+    }
+
+    function spawnParticles(x, y, color, amt) {
+        for(let i=0; i<amt; i++) {
+            particles.push({
+                x, y, vx: (Math.random()-0.5)*4, vy: (Math.random()-0.5)*4,
+                life: 1, c: color
             });
-        });
+        }
     }
 
-    const bossSprite = [
-        "   BBBBBB   ",
-        "  BBWWWWBB  ",
-        " BBWBBBBWBB ",
-        "BBWBPWWPBWBB",
-        "BBWBPWWPBWBB",
-        " BBWBBBBWBB ",
-        "  BBWWWWBB  ",
-        "   BBBBBB   ",
-        "     BB     ",
-        "    BBBB    ",
-        "   BB  BB   "
-    ];
+    function spawnDrop(x, y, val, isGold) {
+        drops.push({ x, y, vx: (Math.random()-0.5)*3, vy: -2, val, isGold, life: 600 });
+    }
 
-    const heartSprite = [
-        " R R ",
-        "RRRRR",
-        "RRRRR",
-        " RRR ",
-        "  R  "
-    ];
+    function checkLevelUp() {
+        if (p.xp >= p.maxXp) {
+            p.xp -= p.maxXp;
+            p.lvl++;
+            p.maxXp = Math.floor(p.maxXp * 1.5);
+            p.maxHp += 5;
+            p.hp = p.maxHp;
+            p.dmg += 3;
+            spawnDamageText(p.x, p.y - 20, "LEVEL UP!", "#fbbf24");
+            spawnParticles(p.x, p.y, "#fbbf24", 30);
+            document.getElementById('lvl-txt').innerText = p.lvl;
+            updateUI();
+        }
+    }
 
+    function updateUI() {
+        document.getElementById('hp-bar').style.width = (p.hp / p.maxHp * 100) + '%';
+        document.getElementById('xp-bar').style.width = (p.xp / p.maxXp * 100) + '%';
+        document.getElementById('gold-txt').innerText = p.gold;
+    }
+
+    // --- MAIN LOGIC LOOP ---
     function update() {
-        if (state !== 'PLAY') return;
+        if (hitStop > 0) { hitStop--; return; } // Game freeze effect
         frame++;
-
         if (shake > 0) shake--;
+        if (p.invuln > 0) p.invuln--;
 
-        // Movement with sub-pixel prevention
-        if (keys['ArrowUp']) player.y -= player.speed;
-        if (keys['ArrowDown']) player.y += player.speed;
-        if (keys['ArrowLeft']) player.x -= player.speed;
-        if (keys['ArrowRight']) player.x += player.speed;
+        let dx = 0, dy = 0;
+        if(keys['ArrowUp'] || keys['KeyW']) dy = -1;
+        if(keys['ArrowDown'] || keys['KeyS']) dy = 1;
+        if(keys['ArrowLeft'] || keys['KeyA']) dx = -1;
+        if(keys['ArrowRight'] || keys['KeyD']) dx = 1;
 
-        // Constraint within "Battle Box"
-        player.x = Math.max(45, Math.min(115, player.x));
-        player.y = Math.max(80, Math.min(130, player.y));
+        if (dx !== 0 || dy !== 0) {
+            // Normalize diagonal speed
+            const len = Math.hypot(dx, dy);
+            p.vx = (dx / len) * p.speed;
+            p.vy = (dy / len) * p.speed;
+            if(p.atkTimer <= 0) { // Don't change direction mid-swing
+                if(dx !== 0) { p.dirX = dx > 0 ? 1 : -1; p.dirY = 0; }
+                else if(dy !== 0) { p.dirY = dy > 0 ? 1 : -1; p.dirX = 0; }
+            }
+            p.animWalk += 0.2;
+        } else {
+            p.vx *= 0.6; p.vy *= 0.6;
+            p.animWalk = 0;
+        }
 
-        // Patterns
-        if (frame % 40 === 0) {
-            for(let i=0; i<8; i++) {
-                const ang = (i / 8) * Math.PI * 2 + (frame * 0.01);
-                bullets.push({ x: RES_W/2, y: 40, vx: Math.cos(ang), vy: Math.sin(ang), type: 'orb' });
+        // Apply movement & bounds
+        p.x = Math.max(5, Math.min(WORLD_W - 5, p.x + p.vx));
+        p.y = Math.max(5, Math.min(WORLD_H - 5, p.y + p.vy));
+
+        // Gate Logic
+        let msgBox = document.getElementById('message-box');
+        msgBox.style.display = 'none';
+        
+        gates.forEach(g => {
+            if (!g.open && p.x + p.w > g.x && p.x - p.w < g.x + g.w) {
+                p.x -= p.vx; // Block
+                msgBox.style.display = 'block';
+                document.getElementById('msg-title').innerText = g.name;
+                document.getElementById('msg-desc').innerText = `Requires ${g.cost} Gold to open.\n(Press SPACE)`;
+                
+                if(keys['Space'] && p.gold >= g.cost) {
+                    p.gold -= g.cost;
+                    g.open = true;
+                    spawnParticles(g.x, p.y, "#94a3b8", 40);
+                    shake = 10;
+                    updateUI();
+                }
+            }
+        });
+
+        // Attack Logic
+        let attackBox = null;
+        if (p.atkTimer > 0) {
+            p.atkTimer--;
+            let aw = 20, ah = 20;
+            let ax = p.x + (p.dirX * 15);
+            let ay = p.y + (p.dirY * 15);
+            attackBox = { x: ax, y: ay, w: aw, h: ah };
+        }
+
+        // Enemy Logic
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            let e = enemies[i];
+            
+            if (e.hitFlash > 0) e.hitFlash--;
+            e.vx *= 0.8; e.vy *= 0.8; // Friction
+
+            // AI Hop Logic
+            e.timer++;
+            if (e.timer > 60) {
+                if (Math.hypot(p.x - e.x, p.y - e.y) < 150) { // Aggro range
+                    let ang = Math.atan2(p.y - e.y, p.x - e.x);
+                    e.vx = Math.cos(ang) * e.speed * 4; // Hop impulse
+                    e.vy = Math.sin(ang) * e.speed * 4;
+                }
+                e.timer = Math.random() * -20; // Randomize next hop
+            }
+
+            e.x += e.vx; e.y += e.vy;
+
+            // Player Attack Hit
+            if (attackBox && p.atkTimer === p.atkDuration - 2) { // Hit on specific frame
+                if (Math.abs(e.x - attackBox.x) < 20 && Math.abs(e.y - attackBox.y) < 20) {
+                    e.hp -= p.dmg;
+                    e.hitFlash = 5;
+                    hitStop = 3; // JUICE: Freeze frames
+                    shake = 3;   // JUICE: Screen shake
+                    
+                    // Knockback
+                    let ang = Math.atan2(e.y - p.y, e.x - p.x);
+                    e.vx = Math.cos(ang) * 6;
+                    e.vy = Math.sin(ang) * 6;
+                    
+                    spawnDamageText(e.x, e.y - 10, p.dmg, "#fff");
+                    spawnParticles(e.x, e.y, e.color, 5);
+
+                    if (e.hp <= 0) {
+                        spawnParticles(e.x, e.y, e.color, 20);
+                        // Drop Loot
+                        spawnDrop(e.x, e.y, e.xp, false); // XP Gem
+                        if(Math.random() > 0.3) spawnDrop(e.x + 5, e.y, e.gold, true); // Gold
+                        enemies.splice(i, 1);
+                        
+                        // Respawn to keep world populated
+                        if(e.type==='slime') spawnEnemy(50, 380, 'slime');
+                        if(e.type==='skeleton') spawnEnemy(450, 780, 'skeleton');
+                        if(e.type==='demon') spawnEnemy(850, 1150, 'demon');
+                        continue;
+                    }
+                }
+            }
+
+            // Player takes damage
+            if (p.invuln <= 0 && Math.abs(e.x - p.x) < 12 && Math.abs(e.y - p.y) < 12) {
+                p.hp -= e.dmg;
+                p.invuln = 45; // 0.75s iframes
+                shake = 8;
+                hitStop = 5;
+                spawnDamageText(p.x, p.y - 15, e.dmg, "#e11d48");
+                updateUI();
+                
+                // Player knockback
+                let ang = Math.atan2(p.y - e.y, p.x - e.x);
+                p.vx = Math.cos(ang) * 8; p.vy = Math.sin(ang) * 8;
+
+                if (p.hp <= 0) {
+                    p.hp = p.maxHp; // Simple respawn penalty
+                    p.gold = Math.floor(p.gold / 2);
+                    p.x = 100; p.y = 180;
+                    updateUI();
+                }
             }
         }
-        
-        if (frame % 10 === 0) {
-            bullets.push({ 
-                x: 40 + Math.random() * 80, 
-                y: 0, 
-                vx: 0, 
-                vy: 1.2, 
-                type: 'drop' 
-            });
-        }
 
-        // Bullet Logic
-        for (let i = bullets.length - 1; i >= 0; i--) {
-            const b = bullets[i];
-            b.x += b.vx;
-            b.y += b.vy;
+        // Drops Logic
+        for (let i = drops.length - 1; i >= 0; i--) {
+            let d = drops[i];
+            d.vy += 0.1; // Gravity for bounce
+            d.x += d.vx; d.y += d.vy;
+            if(d.y > d.startY) { d.y = d.startY; d.vy = -d.vy * 0.5; d.vx *= 0.8; }
+            if(!d.startY) d.startY = d.y + 10; // set ground level
 
-            // Collision
-            if (Math.abs(b.x - player.x) < 3 && Math.abs(b.y - player.y) < 3) {
-                hp -= 1;
-                shake = 10;
-                bullets.splice(i, 1);
-                document.getElementById('hp-label').innerText = `HP: ${hp}/20`;
-                if (hp <= 0) state = 'GAMEOVER';
+            d.life--;
+
+            // Magnet to player
+            let dist = Math.hypot(p.x - d.x, p.y - d.y);
+            if (dist < 40) {
+                d.x += (p.x - d.x) * 0.1;
+                d.y += (p.y - d.y) * 0.1;
+            }
+
+            // Collect
+            if (dist < 10) {
+                if (d.isGold) {
+                    p.gold += d.val;
+                    // Pitch shifted sound placeholder
+                } else {
+                    p.xp += d.val;
+                    checkLevelUp();
+                }
+                updateUI();
+                drops.splice(i, 1);
                 continue;
             }
-
-            if (b.y > RES_H || b.x < 0 || b.x > RES_W) bullets.splice(i, 1);
+            if (d.life <= 0) drops.splice(i, 1);
         }
+
+        // Update Effects
+        texts.forEach((t, i) => { t.y += t.vy; t.life--; if (t.life<=0) texts.splice(i,1); });
+        particles.forEach((pr, i) => { pr.x+=pr.vx; pr.y+=pr.vy; pr.life-=0.05; if(pr.life<=0) particles.splice(i,1); });
+
+        // Camera Follow (Smooth)
+        let targetCamX = p.x - W/2;
+        let targetCamY = p.y - H/2;
+        targetCamX = Math.max(0, Math.min(WORLD_W - W, targetCamX));
+        targetCamY = Math.max(0, Math.min(WORLD_H - H, targetCamY));
+        camX += (targetCamX - camX) * 0.1;
+        camY += (targetCamY - camY) * 0.1;
     }
 
+    // --- RENDER LOOP ---
     function draw() {
-        // Clear with slight flicker for "old hardware" feel
-        ctx.fillStyle = '#0a0a0c';
-        ctx.fillRect(0, 0, RES_W, RES_H);
-
-        if (shake > 0) ctx.translate((Math.random()-0.5)*2, (Math.random()-0.5)*2);
-
-        // Draw Battle Box
-        ctx.strokeStyle = '#445';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(40, 80, 80, 55);
-
-        // Draw Boss
-        const bx = RES_W / 2 - 6;
-        const by = 20 + Math.sin(frame * 0.08) * 4;
-        drawPixelSprite(bossSprite, bx, by);
+        // Biome Backgrounds
+        ctx.fillStyle = '#0f172a'; // Base Void
+        ctx.fillRect(0, 0, W, H);
         
-        // Eyes glow
-        ctx.fillStyle = (frame % 30 < 15) ? '#f0f' : '#fff';
-        ctx.fillRect(bx + 4, by + 3, 1, 1);
-        ctx.fillRect(bx + 7, by + 3, 1, 1);
+        ctx.save();
+        ctx.translate(-Math.floor(camX), -Math.floor(camY));
+        
+        if (shake > 0) ctx.translate((Math.random()-0.5)*4, (Math.random()-0.5)*4);
 
-        // Draw Bullets
-        bullets.forEach(b => {
-            if (b.type === 'orb') ctx.fillStyle = '#fff';
-            else ctx.fillStyle = '#4f4';
-            ctx.fillRect(Math.floor(b.x), Math.floor(b.y), 2, 2);
+        // Draw Biomes Floor
+        ctx.fillStyle = '#14532d'; // Forest
+        ctx.fillRect(0, 0, 400, WORLD_H);
+        ctx.fillStyle = '#3f3f46'; // Graveyard
+        ctx.fillRect(400, 0, 400, WORLD_H);
+        ctx.fillStyle = '#450a0a'; // Inferno
+        ctx.fillRect(800, 0, 400, WORLD_H);
+
+        // Draw Gates
+        gates.forEach(g => {
+            if (!g.open) {
+                ctx.fillStyle = '#334155';
+                ctx.fillRect(g.x, g.y, g.w, g.h);
+                // Detail lines
+                ctx.fillStyle = '#94a3b8';
+                for(let i=0; i<WORLD_H; i+=20) ctx.fillRect(g.x+8, i+5, 4, 10);
+            }
         });
 
-        // Draw Player
-        if (state === 'PLAY') {
-            drawPixelSprite(heartSprite, player.x - 2, player.y - 2);
-        }
+        // Sort entities by Y for pseudo-3D depth
+        let renderQueue = [];
+        renderQueue.push({y: p.y, type: 'player'});
+        enemies.forEach(e => renderQueue.push({y: e.y, type: 'enemy', ref: e}));
+        drops.forEach(d => renderQueue.push({y: d.y, type: 'drop', ref: d}));
+        
+        renderQueue.sort((a,b) => a.y - b.y);
 
-        if (state === 'START') {
-            ctx.fillStyle = '#fff';
-            ctx.textAlign = 'center';
-            ctx.fillText('VOID-HEART', RES_W/2, 100);
-            ctx.fillText('PRESS Z', RES_W/2, 115);
-        }
+        // Shadows
+        renderQueue.forEach(obj => {
+            let item = obj.ref || p;
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.beginPath();
+            ctx.ellipse(item.x, item.y + (item.h||10)/2, (item.w||10)*0.6, 3, 0, 0, Math.PI*2);
+            ctx.fill();
+        });
 
-        if (state === 'GAMEOVER') {
-            ctx.fillStyle = '#f00';
-            ctx.textAlign = 'center';
-            ctx.fillText('SOUL SHATTERED', RES_W/2, 100);
-            ctx.fillText('PRESS Z TO RE-LINK', RES_W/2, 115);
-        }
+        // Draw Entities
+        renderQueue.forEach(obj => {
+            if (obj.type === 'drop') {
+                let d = obj.ref;
+                if(d.life < 60 && frame % 4 < 2) return; // Blink before despawn
+                ctx.fillStyle = d.isGold ? '#fbbf24' : '#3b82f6';
+                let s = d.isGold ? 4 : 3;
+                ctx.fillRect(d.x - s/2, d.y - s/2, s, s);
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(d.x - s/2 + 1, d.y - s/2 + 1, 1, 1); // shine
+            } 
+            else if (obj.type === 'enemy') {
+                let e = obj.ref;
+                ctx.save();
+                ctx.translate(e.x, e.y);
+                
+                // Squash and stretch based on velocity
+                let stretchX = 1 + Math.abs(e.vx)*0.1;
+                let stretchY = 1 + Math.abs(e.vy)*0.1;
+                ctx.scale(1/stretchY, stretchY);
 
-        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset shake
-        requestAnimationFrame(draw);
+                ctx.fillStyle = e.hitFlash > 0 ? '#fff' : e.color;
+                
+                if (e.type === 'slime') {
+                    ctx.fillRect(-6, -5, 12, 10);
+                    // Eyes
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(-4 + (e.vx>0?2:0), -2, 2, 2);
+                    ctx.fillRect(2 + (e.vx>0?2:0), -2, 2, 2);
+                } else if (e.type === 'skeleton') {
+                    ctx.fillRect(-5, -10, 10, 14);
+                    ctx.fillStyle = '#000'; // Skull eyes
+                    ctx.fillRect(-3, -7, 2, 2); ctx.fillRect(1, -7, 2, 2);
+                } else if (e.type === 'demon') {
+                    ctx.fillRect(-8, -12, 16, 16);
+                    ctx.fillStyle = '#facc15'; // Horns
+                    ctx.fillRect(-10, -14, 2, 4); ctx.fillRect(8, -14, 2, 4);
+                    ctx.fillStyle = '#000'; // Eyes
+                    ctx.fillRect(-4, -6, 3, 2); ctx.fillRect(1, -6, 3, 2);
+                }
+                
+                // Health bar
+                if(e.hp < e.maxHp) {
+                    ctx.fillStyle = '#000'; ctx.fillRect(-8, -15, 16, 3);
+                    ctx.fillStyle = '#ef4444'; ctx.fillRect(-7, -14, 14 * (e.hp/e.maxHp), 1);
+                }
+                ctx.restore();
+            }
+            else if (obj.type === 'player') {
+                if(p.invuln > 0 && frame % 4 < 2) return; // Iframes flicker
+                
+                ctx.save();
+                ctx.translate(p.x, p.y);
+                
+                // Waddle animation
+                let bounce = Math.abs(Math.sin(p.animWalk)) * 2;
+                
+                // Body
+                ctx.fillStyle = '#cbd5e1'; // Armor silver
+                ctx.fillRect(-5, -8 - bounce, 10, 10);
+                
+                // Visor gap
+                ctx.fillStyle = '#000';
+                let lookX = p.dirX * 3;
+                let lookY = p.dirY * 3;
+                ctx.fillRect(-3 + lookX, -5 - bounce + lookY, 6, 2);
+                
+                // Legs
+                ctx.fillStyle = '#475569';
+                if(p.animWalk > 0) {
+                    let s = Math.sin(p.animWalk * 2);
+                    ctx.fillRect(-4, 2, 3, 3 + s*2);
+                    ctx.fillRect(1, 2, 3, 3 - s*2);
+                } else {
+                    ctx.fillRect(-4, 2, 3, 3);
+                    ctx.fillRect(1, 2, 3, 3);
+                }
+                ctx.restore();
+
+                // Sword Attack Animation
+                if (p.atkTimer > 0) {
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    
+                    let progress = 1 - (p.atkTimer / p.atkDuration);
+                    let angle = (progress * Math.PI) - (Math.PI/2);
+                    
+                    // Rotate based on aim direction
+                    let baseAngle = Math.atan2(p.dirY, p.dirX);
+                    ctx.rotate(baseAngle + angle);
+                    
+                    // Draw Sword
+                    ctx.fillStyle = '#f8fafc'; // blade
+                    ctx.fillRect(5, -2, 15, 4);
+                    ctx.fillStyle = '#fbbf24'; // hilt
+                    ctx.fillRect(5, -4, 2, 8);
+                    
+                    // Sword Swoosh FX
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 20, -Math.PI/2, Math.PI/2);
+                    ctx.stroke();
+
+                    ctx.restore();
+                }
+            }
+        });
+
+        // Particles
+        particles.forEach(pr => {
+            ctx.globalAlpha = pr.life;
+            ctx.fillStyle = pr.c;
+            ctx.fillRect(pr.x, pr.y, 2, 2);
+        });
+        ctx.globalAlpha = 1;
+
+        // Damage Texts
+        texts.forEach(t => {
+            ctx.globalAlpha = t.life / 40;
+            ctx.fillStyle = t.color;
+            ctx.font = '8px "Press Start 2P"';
+            ctx.fillText(t.text, t.x - 4, t.y);
+        });
+        ctx.globalAlpha = 1;
+
+        ctx.restore();
+
+        // Screen scanlines (CRT effect)
+        ctx.fillStyle = 'rgba(0,0,0,0.1)';
+        for(let i=0; i<H; i+=2) ctx.fillRect(0, i, W, 1);
+
+        requestAnimationFrame(() => {
+            update();
+            draw();
+        });
     }
 
-    setInterval(update, 1000/60);
+    updateUI();
     draw();
 </script>
 </body>
