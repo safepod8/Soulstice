@@ -2,225 +2,183 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Soul Shard - Boss Encounter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOID-HEART 32-BIT</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
 
         body {
             margin: 0;
-            background: #000;
-            color: #fff;
-            font-family: 'Press+Start+2P', cursive;
+            background: #1a1a1a;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             height: 100vh;
+            color: #fff;
+            font-family: 'VT323', monospace;
             overflow: hidden;
-            image-rendering: pixelated;
         }
 
-        #game-container {
+        /* The scaling container ensures pixels stay sharp */
+        #screen-container {
             position: relative;
-            width: 640px;
-            height: 480px;
-            border: 4px solid #fff;
+            border: 8px solid #334;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
             background: #000;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
         }
 
         canvas {
             display: block;
+            image-rendering: pixelated;
+            width: 640px; /* Scaled up view */
+            height: 576px;
         }
 
-        .ui-layer {
+        .ui-overlay {
             position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 580px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            pointer-events: none;
-        }
-
-        .hp-bar-container {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            font-size: 12px;
-        }
-
-        .hp-bg {
-            width: 100px;
-            height: 20px;
-            background: #f00;
-            position: relative;
-        }
-
-        #hp-fill {
-            width: 100%;
-            height: 100%;
-            background: #ff0;
-        }
-
-        .dialog-box {
-            position: absolute;
-            top: 260px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 500px;
-            height: 100px;
-            border: 3px solid #fff;
-            padding: 15px;
-            font-size: 14px;
-            line-height: 1.6;
-            background: #000;
-        }
-
-        .hidden { display: none; }
-        
-        #instructions {
-            position: absolute;
-            bottom: -40px;
+            top: 10px;
             width: 100%;
             text-align: center;
-            font-size: 8px;
-            color: #888;
+            pointer-events: none;
+            font-size: 24px;
+        }
+
+        .controls-hint {
+            margin-top: 20px;
+            color: #889;
+            text-align: center;
+            font-size: 20px;
         }
     </style>
 </head>
 <body>
 
-<div id="game-container">
-    <canvas id="gameCanvas"></canvas>
-    
-    <div id="dialog" class="dialog-box">
-        * The Guardian blocks your path.
-        <br><br>
-        [Z] Start Battle
+    <div id="screen-container">
+        <div class="ui-overlay">
+            <span id="hp-label">HP: 20/20</span>
+        </div>
+        <canvas id="g"></canvas>
     </div>
 
-    <div class="ui-layer">
-        <div style="font-size: 14px;">PLAYER  LV 19</div>
-        <div class="hp-bar-container">
-            <span>HP</span>
-            <div class="hp-bg">
-                <div id="hp-fill"></div>
-            </div>
-            <span id="hp-text">20 / 20</span>
-        </div>
+    <div class="controls-hint">
+        ARROWS: MOVE | Z: START/ACTION
     </div>
-    
-    <div id="instructions">ARROWS TO MOVE | Z TO CONFIRM | PC RECOMMENDED</div>
-</div>
 
 <script>
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = 640;
-    canvas.height = 480;
+    // Native internal resolution (low-res for real pixel art)
+    const RES_W = 160;
+    const RES_H = 144;
+    const canvas = document.getElementById('g');
+    const ctx = canvas.getContext('2d', { alpha: false });
+    canvas.width = RES_W;
+    canvas.height = RES_H;
 
-    // Game Constants
-    const BOX_X = 170;
-    const BOX_Y = 250;
-    const BOX_W = 300;
-    const BOX_H = 140;
+    // Disable image smoothing for that 32-bit look
+    ctx.imageSmoothingEnabled = false;
 
-    // Game State
-    let state = 'DIALOG';
-    let pHP = 20;
-    let maxHP = 20;
+    let state = 'START';
     let frame = 0;
+    let hp = 20;
+    let particles = [];
     let bullets = [];
-    let bossY = 80;
-    let bossFloat = 0;
-    let invuln = 0;
+    let shake = 0;
 
     const player = {
-        x: 320,
-        y: 320,
-        size: 8,
-        speed: 3
+        x: RES_W / 2,
+        y: RES_H - 30,
+        w: 5,
+        h: 5,
+        speed: 1.5
     };
 
     const keys = {};
     window.addEventListener('keydown', e => {
         keys[e.code] = true;
-        if(e.code === 'KeyZ' && state === 'DIALOG') {
-            startBattle();
-        }
+        if(e.code === 'KeyZ' && state !== 'PLAY') startGame();
     });
     window.addEventListener('keyup', e => keys[e.code] = false);
 
-    function startBattle() {
-        state = 'BATTLE';
-        document.getElementById('dialog').classList.add('hidden');
+    function startGame() {
+        state = 'PLAY';
+        hp = 20;
         bullets = [];
-        pHP = 20;
-        updateUI();
+        frame = 0;
     }
 
-    function updateUI() {
-        const fill = document.getElementById('hp-fill');
-        const text = document.getElementById('hp-text');
-        const pct = (pHP / maxHP) * 100;
-        fill.style.width = pct + '%';
-        text.innerText = `${pHP} / ${maxHP}`;
+    // Helper to draw pixel-art sprites manually
+    function drawPixelSprite(data, x, y, size = 1) {
+        data.forEach((row, dy) => {
+            row.split('').forEach((pixel, dx) => {
+                if (pixel === ' ') return;
+                if (pixel === 'R') ctx.fillStyle = '#f44';
+                if (pixel === 'W') ctx.fillStyle = '#fff';
+                if (pixel === 'B') ctx.fillStyle = '#111';
+                if (pixel === 'G') ctx.fillStyle = '#4f4';
+                if (pixel === 'P') ctx.fillStyle = '#d4f';
+                if (pixel === 'Y') ctx.fillStyle = '#ff0';
+                ctx.fillRect(Math.floor(x + dx * size), Math.floor(y + dy * size), size, size);
+            });
+        });
     }
 
-    function spawnBullet(type) {
-        if (type === 'circle') {
-            const angle = (frame * 0.1);
-            bullets.push({
-                x: 320, y: 120,
-                vx: Math.cos(angle) * 3,
-                vy: Math.sin(angle) * 3,
-                size: 6,
-                color: '#fff'
-            });
-        }
-        if (type === 'rain') {
-            bullets.push({
-                x: BOX_X + Math.random() * BOX_W,
-                y: BOX_Y - 20,
-                vx: 0,
-                vy: 2.5 + Math.random() * 2,
-                size: 4,
-                color: '#0cf'
-            });
-        }
-        if (type === 'sweep') {
-            bullets.push({
-                x: BOX_X - 10,
-                y: BOX_Y + 20 + (Math.sin(frame * 0.05) * 50 + 50),
-                vx: 4,
-                vy: 0,
-                size: 10,
-                color: '#f0f'
-            });
-        }
-    }
+    const bossSprite = [
+        "   BBBBBB   ",
+        "  BBWWWWBB  ",
+        " BBWBBBBWBB ",
+        "BBWBPWWPBWBB",
+        "BBWBPWWPBWBB",
+        " BBWBBBBWBB ",
+        "  BBWWWWBB  ",
+        "   BBBBBB   ",
+        "     BB     ",
+        "    BBBB    ",
+        "   BB  BB   "
+    ];
+
+    const heartSprite = [
+        " R R ",
+        "RRRRR",
+        "RRRRR",
+        " RRR ",
+        "  R  "
+    ];
 
     function update() {
-        if (state !== 'BATTLE') return;
-
+        if (state !== 'PLAY') return;
         frame++;
-        if (invuln > 0) invuln--;
 
-        // Player Movement
+        if (shake > 0) shake--;
+
+        // Movement with sub-pixel prevention
         if (keys['ArrowUp']) player.y -= player.speed;
         if (keys['ArrowDown']) player.y += player.speed;
         if (keys['ArrowLeft']) player.x -= player.speed;
         if (keys['ArrowRight']) player.x += player.speed;
 
-        // Box Collisions
-        player.x = Math.max(BOX_X + 10, Math.min(BOX_X + BOX_W - 10, player.x));
-        player.y = Math.max(BOX_Y + 10, Math.min(BOX_Y + BOX_H - 10, player.y));
+        // Constraint within "Battle Box"
+        player.x = Math.max(45, Math.min(115, player.x));
+        player.y = Math.max(80, Math.min(130, player.y));
 
-        // Boss Patterns
-        if (frame % 5 === 0) spawnBullet('circle');
-        if (frame % 15 === 0) spawnBullet('rain');
-        if (frame % 60 === 0) spawnBullet('sweep');
+        // Patterns
+        if (frame % 40 === 0) {
+            for(let i=0; i<8; i++) {
+                const ang = (i / 8) * Math.PI * 2 + (frame * 0.01);
+                bullets.push({ x: RES_W/2, y: 40, vx: Math.cos(ang), vy: Math.sin(ang), type: 'orb' });
+            }
+        }
+        
+        if (frame % 10 === 0) {
+            bullets.push({ 
+                x: 40 + Math.random() * 80, 
+                y: 0, 
+                vx: 0, 
+                vy: 1.2, 
+                type: 'drop' 
+            });
+        }
 
         // Bullet Logic
         for (let i = bullets.length - 1; i >= 0; i--) {
@@ -228,86 +186,69 @@
             b.x += b.vx;
             b.y += b.vy;
 
-            // Collision with player
-            const dist = Math.hypot(player.x - b.x, player.y - b.y);
-            if (dist < player.size + b.size && invuln <= 0) {
-                pHP = Math.max(0, pHP - 1);
-                invuln = 30; // 0.5s invuln
-                updateUI();
-                if (pHP <= 0) {
-                    state = 'DIALOG';
-                    document.getElementById('dialog').classList.remove('hidden');
-                    document.getElementById('dialog').innerHTML = "* You lost your SOUL.<br><br>[Z] Try Again";
-                }
+            // Collision
+            if (Math.abs(b.x - player.x) < 3 && Math.abs(b.y - player.y) < 3) {
+                hp -= 1;
+                shake = 10;
+                bullets.splice(i, 1);
+                document.getElementById('hp-label').innerText = `HP: ${hp}/20`;
+                if (hp <= 0) state = 'GAMEOVER';
+                continue;
             }
 
-            // Remove bullets out of bounds
-            if (b.y > 500 || b.x < 0 || b.x > 640) bullets.splice(i, 1);
+            if (b.y > RES_H || b.x < 0 || b.x > RES_W) bullets.splice(i, 1);
         }
-
-        bossFloat = Math.sin(frame * 0.05) * 10;
     }
 
     function draw() {
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // Clear with slight flicker for "old hardware" feel
+        ctx.fillStyle = '#0a0a0c';
+        ctx.fillRect(0, 0, RES_W, RES_H);
 
-        // Draw Boss (Pixel Art Style)
-        ctx.save();
-        ctx.translate(320, bossY + bossFloat);
-        
-        // Cloak
-        ctx.fillStyle = '#111';
-        ctx.beginPath();
-        ctx.moveTo(0, -40);
-        ctx.lineTo(40, 60);
-        ctx.lineTo(-40, 60);
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        // Face
-        ctx.fillStyle = '#000';
-        ctx.fillRect(-15, -10, 30, 25);
-        ctx.strokeStyle = '#fff';
-        ctx.strokeRect(-15, -10, 30, 25);
-        
-        // Glowing Eyes
-        ctx.fillStyle = (frame % 20 < 10) ? '#f00' : '#fff';
-        ctx.fillRect(-10, 0, 4, 4);
-        ctx.fillRect(6, 0, 4, 4);
-        
-        ctx.restore();
+        if (shake > 0) ctx.translate((Math.random()-0.5)*2, (Math.random()-0.5)*2);
 
         // Draw Battle Box
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 5;
-        ctx.strokeRect(BOX_X, BOX_Y, BOX_W, BOX_H);
+        ctx.strokeStyle = '#445';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(40, 80, 80, 55);
+
+        // Draw Boss
+        const bx = RES_W / 2 - 6;
+        const by = 20 + Math.sin(frame * 0.08) * 4;
+        drawPixelSprite(bossSprite, bx, by);
+        
+        // Eyes glow
+        ctx.fillStyle = (frame % 30 < 15) ? '#f0f' : '#fff';
+        ctx.fillRect(bx + 4, by + 3, 1, 1);
+        ctx.fillRect(bx + 7, by + 3, 1, 1);
 
         // Draw Bullets
         bullets.forEach(b => {
-            ctx.fillStyle = b.color;
-            ctx.beginPath();
-            ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
-            ctx.fill();
-            // Glow effect
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 1;
-            ctx.stroke();
+            if (b.type === 'orb') ctx.fillStyle = '#fff';
+            else ctx.fillStyle = '#4f4';
+            ctx.fillRect(Math.floor(b.x), Math.floor(b.y), 2, 2);
         });
 
-        // Draw Soul (Player)
-        ctx.fillStyle = invuln % 4 < 2 ? '#f00' : '#800';
-        // Heart shape
-        const px = player.x;
-        const py = player.y;
-        ctx.beginPath();
-        ctx.moveTo(px, py + 4);
-        ctx.bezierCurveTo(px - 10, py - 10, px - 15, py + 5, px, py + 12);
-        ctx.bezierCurveTo(px + 15, py + 5, px + 10, py - 10, px, py + 4);
-        ctx.fill();
+        // Draw Player
+        if (state === 'PLAY') {
+            drawPixelSprite(heartSprite, player.x - 2, player.y - 2);
+        }
 
+        if (state === 'START') {
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.fillText('VOID-HEART', RES_W/2, 100);
+            ctx.fillText('PRESS Z', RES_W/2, 115);
+        }
+
+        if (state === 'GAMEOVER') {
+            ctx.fillStyle = '#f00';
+            ctx.textAlign = 'center';
+            ctx.fillText('SOUL SHATTERED', RES_W/2, 100);
+            ctx.fillText('PRESS Z TO RE-LINK', RES_W/2, 115);
+        }
+
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset shake
         requestAnimationFrame(draw);
     }
 
