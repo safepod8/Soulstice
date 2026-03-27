@@ -2,379 +2,248 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FLICK-DRIVE: NEON REAP</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHRONOS VANDAL</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@700&display=swap');
         
         body {
             margin: 0;
-            background: #020205;
+            background: #0a0a0f;
             color: #fff;
-            font-family: 'Orbitron', sans-serif;
+            font-family: 'Fira Code', monospace;
             overflow: hidden;
-            touch-action: none;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             height: 100vh;
         }
 
-        #ui {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            pointer-events: none;
-            z-index: 10;
+        #game-container {
+            position: relative;
+            border: 4px solid #222;
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.1);
         }
-
-        .score-val { font-size: 32px; color: #0ff; text-shadow: 0 0 10px #0ff; }
-        .combo-val { font-size: 18px; color: #f0f; }
 
         canvas {
             display: block;
             background: #000;
-            box-shadow: 0 0 100px rgba(0, 255, 255, 0.1);
-            cursor: crosshair;
         }
 
-        #overlay {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8);
+        #ui {
+            width: 800px;
             display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 100;
-        }
-
-        .btn {
-            background: #0ff;
-            color: #000;
-            border: none;
-            padding: 15px 40px;
-            font-family: 'Orbitron', sans-serif;
-            font-weight: 900;
-            font-size: 20px;
-            cursor: pointer;
-            transition: 0.2s;
-            clip-path: polygon(10% 0, 100% 0, 90% 100%, 0% 100%);
-        }
-        .btn:hover { background: #fff; transform: scale(1.1); }
-
-        #upgrade-screen {
-            display: none;
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            width: 80%;
-            max-width: 400px;
-            background: #050510;
-            border: 2px solid #0ff;
-            padding: 20px;
-            z-index: 200;
-        }
-
-        .upgrade-opt {
-            background: #111;
-            border: 1px solid #333;
-            padding: 15px;
-            margin: 10px 0;
-            cursor: pointer;
+            justify-content: space-between;
+            padding: 10px;
             font-size: 14px;
+            color: #ff00ff;
+            text-transform: uppercase;
         }
-        .upgrade-opt:hover { border-color: #0ff; background: #0a1a1a; }
+
+        .timer-bar {
+            height: 4px;
+            background: #222;
+            width: 100%;
+            margin-top: 5px;
+        }
+
+        #timer-fill {
+            height: 100%;
+            background: #00ffff;
+            width: 0%;
+        }
+
+        #msg-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            padding: 20px;
+            border: 2px solid #ff00ff;
+            text-align: center;
+            display: none;
+            z-index: 10;
+        }
+
+        .instruction {
+            margin-top: 10px;
+            color: #666;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
 
 <div id="ui">
-    <div class="score-val" id="score">0</div>
-    <div class="combo-val" id="combo">COMBO x1</div>
+    <div>Timeline: <span id="loop-count">1</span></div>
+    <div style="width: 300px;">
+        Loop Progress
+        <div class="timer-bar"><div id="timer-fill"></div></div>
+    </div>
+    <div>Anomalies: <span id="paradox-warn">Stable</span></div>
 </div>
 
-<div id="overlay">
-    <h1 style="font-size: 60px; margin: 0; color: #fff;">FLICK<span style="color:#0ff">DRIVE</span></h1>
-    <p style="color: #666; margin-bottom: 30px;">DRAG & RELEASE TO LAUNCH. VELOCITY IS YOUR BLADE.</p>
-    <button class="btn" onclick="initGame()">INITIATE REAP</button>
+<div id="game-container">
+    <div id="msg-overlay">
+        <h2 id="msg-title">PARADOX DETECTED</h2>
+        <p id="msg-body">You collided with your past self.</p>
+        <button onclick="resetGame()" style="background:#ff00ff; border:none; color:#000; padding:10px 20px; cursor:pointer; font-family:'Fira Code'; font-weight:bold;">RE-SYNCHRONIZE</button>
+    </div>
+    <canvas id="c"></canvas>
 </div>
 
-<div id="upgrade-screen">
-    <h2 style="color:#0ff; margin-top:0">SELECT AUGMENT</h2>
-    <div id="upgrade-list"></div>
-</div>
-
-<canvas id="c"></canvas>
+<div class="instruction">WASD/ARROWS to Move // SPACE to Jump // Don't touch your previous "Ghosts"</div>
 
 <script>
     const canvas = document.getElementById('c');
     const ctx = canvas.getContext('2d');
     
-    let w, h;
-    function resize() {
-        w = canvas.width = window.innerWidth;
-        h = canvas.height = window.innerHeight;
-    }
-    window.addEventListener('resize', resize);
-    resize();
+    canvas.width = 800;
+    canvas.height = 400;
 
-    // Game Constants
-    const FRICTION = 0.97;
-    const MIN_VELOCITY = 0.5;
-    const MAX_FLICK_FORCE = 35;
-    const ENEMY_SPAWN_BASE = 2000;
+    // Constants
+    const LOOP_DURATION = 300; // frames (~5 seconds)
+    const GRAVITY = 0.5;
+    const JUMP_FORCE = -10;
+    const SPEED = 4;
 
     // Game State
-    let score = 0;
-    let combo = 1;
-    let comboTimer = 0;
-    let wave = 1;
-    let playing = false;
-    let lastSpawn = 0;
-    let frame = 0;
-
-    // Input State
-    let isDragging = false;
-    let startX, startY;
-    let currentX, currentY;
-
-    // Objects
-    const player = {
-        x: w/2, y: h/2, vx: 0, vy: 0, r: 15,
-        color: '#0ff',
-        trail: [],
-        upgrades: { bounce: false, fire: false, size: 1, split: false }
+    let currentFrame = 0;
+    let loopCount = 1;
+    let playing = true;
+    
+    let player = {
+        x: 50, y: 350, vx: 0, vy: 0, w: 20, h: 20,
+        history: [] // Stores {x, y} for every frame of the loop
     };
 
-    let enemies = [];
-    let particles = [];
-    let enemyProjectiles = [];
+    let ghosts = []; // Stores arrays of histories from previous loops
+    let target = { x: 730, y: 100, w: 40, h: 40 };
+    let obstacles = [
+        { x: 0, y: 380, w: 800, h: 20 }, // Floor
+        { x: 300, y: 250, w: 200, h: 20 }, // Mid platform
+        { x: 650, y: 150, w: 150, h: 20 }  // High platform
+    ];
 
-    // --- INPUT HANDLERS ---
-    canvas.addEventListener('mousedown', startDrag);
-    canvas.addEventListener('mousemove', moveDrag);
-    canvas.addEventListener('mouseup', endDrag);
-    canvas.addEventListener('touchstart', (e) => startDrag(e.touches[0]));
-    canvas.addEventListener('touchmove', (e) => moveDrag(e.touches[0]));
-    canvas.addEventListener('touchend', endDrag);
+    const keys = {};
+    window.onkeydown = (e) => keys[e.code] = true;
+    window.onkeyup = (e) => keys[e.code] = false;
 
-    function startDrag(e) {
-        if (!playing) return;
-        isDragging = true;
-        const rect = canvas.getBoundingClientRect();
-        startX = e.clientX - rect.left;
-        startY = e.clientY - rect.top;
-        currentX = startX;
-        currentY = startY;
-    }
-
-    function moveDrag(e) {
-        if (!isDragging) return;
-        const rect = canvas.getBoundingClientRect();
-        currentX = e.clientX - rect.left;
-        currentY = e.clientY - rect.top;
-    }
-
-    function endDrag() {
-        if (!isDragging) return;
-        isDragging = false;
-        
-        // Calculate vector
-        let dx = startX - currentX;
-        let dy = startY - currentY;
-        let dist = Math.sqrt(dx*dx + dy*dy);
-        let force = Math.min(dist * 0.2, MAX_FLICK_FORCE);
-        let angle = Math.atan2(dy, dx);
-
-        player.vx = Math.cos(angle) * force;
-        player.vy = Math.sin(angle) * force;
-        
-        // Visual kick
-        createParticles(player.x, player.y, '#fff', 5);
-    }
-
-    function initGame() {
-        document.getElementById('overlay').style.display = 'none';
-        playing = true;
-        score = 0;
-        combo = 1;
-        enemies = [];
-        player.x = w/2; player.y = h/2;
+    function resetGame() {
+        player.x = 50; player.y = 350;
         player.vx = 0; player.vy = 0;
+        player.history = [];
+        ghosts = [];
+        loopCount = 1;
+        currentFrame = 0;
+        playing = true;
+        document.getElementById('msg-overlay').style.display = 'none';
+        document.getElementById('loop-count').innerText = loopCount;
         loop();
     }
 
-    function spawnEnemy() {
-        const side = Math.floor(Math.random() * 4);
-        let ex, ey;
-        if (side === 0) { ex = Math.random() * w; ey = -50; }
-        else if (side === 1) { ex = w + 50; ey = Math.random() * h; }
-        else if (side === 2) { ex = Math.random() * w; ey = h + 50; }
-        else { ex = -50; ey = Math.random() * h; }
-
-        enemies.push({
-            x: ex, y: ey,
-            r: 20,
-            hp: 1,
-            type: Math.random() > 0.8 ? 'FAST' : 'BASIC',
-            color: '#f0f'
-        });
+    function startNewLoop() {
+        ghosts.push([...player.history]);
+        player.history = [];
+        player.x = 50;
+        player.y = 350;
+        player.vx = 0;
+        player.vy = 0;
+        currentFrame = 0;
+        loopCount++;
+        document.getElementById('loop-count').innerText = loopCount;
     }
 
-    function createParticles(x, y, color, count) {
-        for(let i=0; i<count; i++) {
-            particles.push({
-                x, y,
-                vx: (Math.random()-0.5) * 10,
-                vy: (Math.random()-0.5) * 10,
-                life: 1,
-                color
-            });
-        }
+    function checkCollision(a, b) {
+        return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
     }
 
     function loop() {
         if (!playing) return;
-        frame++;
-        ctx.fillStyle = 'rgba(2, 2, 5, 0.3)';
-        ctx.fillRect(0, 0, w, h);
 
-        // Spawn Logic
-        if (Date.now() - lastSpawn > Math.max(500, ENEMY_SPAWN_BASE - (score/10))) {
-            spawnEnemy();
-            lastSpawn = Date.now();
-        }
+        // Update Physics
+        if (keys['ArrowLeft'] || keys['KeyA']) player.vx = -SPEED;
+        else if (keys['ArrowRight'] || keys['KeyD']) player.vx = SPEED;
+        else player.vx *= 0.8;
 
-        // Combo Logic
-        if (comboTimer > 0) comboTimer--;
-        else combo = 1;
-
-        // Player Physics
+        player.vy += GRAVITY;
         player.x += player.vx;
         player.y += player.vy;
-        player.vx *= FRICTION;
-        player.vy *= FRICTION;
 
-        // Wall Bounce
-        if (player.x < player.r || player.x > w - player.r) {
-            player.vx *= -0.8;
-            player.x = player.x < player.r ? player.r : w - player.r;
-        }
-        if (player.y < player.r || player.y > h - player.r) {
-            player.vy *= -0.8;
-            player.y = player.y < player.r ? player.r : h - player.r;
-        }
-
-        // Trail
-        player.trail.push({x: player.x, y: player.y});
-        if (player.trail.length > 10) player.trail.shift();
-
-        // Draw Drag Line
-        if (isDragging) {
-            ctx.beginPath();
-            ctx.moveTo(player.x, player.y);
-            let dx = startX - currentX;
-            let dy = startY - currentY;
-            ctx.lineTo(player.x + dx, player.y + dy);
-            ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-
-        // Draw Trail
-        ctx.beginPath();
-        player.trail.forEach((p, i) => {
-            ctx.lineTo(p.x, p.y);
-        });
-        ctx.strokeStyle = player.color;
-        ctx.lineWidth = 4;
-        ctx.stroke();
-
-        // Draw Player
-        ctx.beginPath();
-        ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
-        ctx.fillStyle = player.color;
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = player.color;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-
-        // Enemies
-        const pSpeed = Math.sqrt(player.vx*player.vx + player.vy*player.vy);
-        
-        for (let i = enemies.length - 1; i >= 0; i--) {
-            const e = enemies[i];
-            
-            // Move enemy toward player
-            let angle = Math.atan2(player.y - e.y, player.x - e.x);
-            let speed = e.type === 'FAST' ? 2.5 : 1.2;
-            e.x += Math.cos(angle) * speed;
-            e.y += Math.sin(angle) * speed;
-
-            // Collision check
-            let dist = Math.hypot(player.x - e.x, player.y - e.y);
-            if (dist < player.r + e.r) {
-                if (pSpeed > 6) { // Killing speed
-                    createParticles(e.x, e.y, '#f0f', 15);
-                    enemies.splice(i, 1);
-                    score += 100 * combo;
-                    combo++;
-                    comboTimer = 120;
-                    document.getElementById('score').innerText = score;
-                    document.getElementById('combo').innerText = `COMBO x${combo}`;
-                    
-                    // Kill impact - preserve some momentum but add slight "hit stop"
-                    player.vx *= 1.1; 
-                    player.vy *= 1.1;
+        // Platform Collisions
+        obstacles.forEach(o => {
+            if (checkCollision(player, o)) {
+                if (player.vy > 0 && player.y < o.y) {
+                    player.y = o.y - player.h;
+                    player.vy = 0;
+                    if (keys['Space'] || keys['ArrowUp'] || keys['KeyW']) player.vy = JUMP_FORCE;
                 } else {
-                    // Death
-                    gameOver();
+                    player.x -= player.vx;
                 }
             }
+        });
 
-            // Draw Enemy
-            ctx.beginPath();
-            ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
-            ctx.fillStyle = '#111';
-            ctx.strokeStyle = e.color;
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            ctx.fill();
-        }
+        // Record History
+        player.history.push({ x: player.x, y: player.y });
 
-        // Particles
-        for (let i = particles.length - 1; i >= 0; i--) {
-            const p = particles[i];
-            p.x += p.vx;
-            p.y += p.vy;
-            p.life -= 0.02;
-            if (p.life <= 0) particles.splice(i, 1);
-            else {
-                ctx.globalAlpha = p.life;
-                ctx.fillStyle = p.color;
-                ctx.fillRect(p.x, p.y, 4, 4);
+        // Draw
+        ctx.fillStyle = '#050508';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw Obstacles
+        ctx.fillStyle = '#1a1a2e';
+        obstacles.forEach(o => ctx.fillRect(o.x, o.y, o.w, o.h));
+
+        // Draw Target
+        ctx.fillStyle = '#00ff00';
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#00ff00';
+        ctx.fillRect(target.x, target.y, target.w, target.h);
+        ctx.shadowBlur = 0;
+
+        // Draw Ghosts and Check Paradox
+        ghosts.forEach((ghostPath, index) => {
+            const pos = ghostPath[currentFrame];
+            if (pos) {
+                // Ghost is a platform!
+                ctx.fillStyle = `rgba(255, 0, 255, ${0.2 + (index * 0.1)})`;
+                ctx.fillRect(pos.x, pos.y, player.w, player.h);
+
+                // Paradox check: If you touch a ghost, you die
+                let ghostObj = { x: pos.x, y: pos.y, w: player.w, h: player.h };
+                if (checkCollision(player, ghostObj)) {
+                    playing = false;
+                    document.getElementById('msg-overlay').style.display = 'block';
+                }
             }
+        });
+
+        // Draw Player
+        ctx.fillStyle = '#00ffff';
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+
+        // Target Check
+        if (checkCollision(player, target)) {
+            playing = false;
+            document.getElementById('msg-title').innerText = "TIMELINE SECURED";
+            document.getElementById('msg-body').innerText = `Completed in ${loopCount} loops!`;
+            document.getElementById('msg-overlay').style.display = 'block';
         }
-        ctx.globalAlpha = 1;
+
+        // Timer
+        currentFrame++;
+        document.getElementById('timer-fill').style.width = (currentFrame / LOOP_DURATION * 100) + '%';
+        
+        if (currentFrame >= LOOP_DURATION) {
+            startNewLoop();
+        }
 
         requestAnimationFrame(loop);
     }
 
-    function gameOver() {
-        playing = false;
-        document.getElementById('overlay').style.display = 'flex';
-        document.getElementById('overlay').querySelector('h1').innerText = "SYSTEM CRASH";
-        document.getElementById('overlay').querySelector('h1').style.color = "#f0f";
-        document.getElementById('overlay').querySelector('p').innerText = `FINAL SCORE: ${score}`;
-        document.getElementById('overlay').querySelector('button').innerText = "REBOOT";
-    }
-
-    // Initial draw
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0,0,w,h);
+    loop();
 </script>
 </body>
 </html>
