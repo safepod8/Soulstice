@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CHRONOS VANDAL</title>
+    <title>CHRONOS VANDAL: EVOLUTION</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@700&display=swap');
         
         body {
             margin: 0;
-            background: #0a0a0f;
+            background: #050508;
             color: #fff;
             font-family: 'Fira Code', monospace;
             overflow: hidden;
@@ -20,152 +20,151 @@
             height: 100vh;
         }
 
-        #game-container {
-            position: relative;
-            border: 4px solid #222;
-            box-shadow: 0 0 20px rgba(255, 0, 255, 0.1);
-        }
-
-        canvas {
-            display: block;
-            background: #000;
-        }
-
         #ui {
             width: 800px;
             display: flex;
             justify-content: space-between;
-            padding: 10px;
-            font-size: 14px;
-            color: #ff00ff;
-            text-transform: uppercase;
+            padding: 15px;
+            background: #0a0a15;
+            border: 2px solid #222;
+            border-bottom: none;
         }
 
-        .timer-bar {
-            height: 4px;
-            background: #222;
-            width: 100%;
-            margin-top: 5px;
+        .meter {
+            height: 8px;
+            background: #111;
+            width: 200px;
+            position: relative;
+            border: 1px solid #333;
         }
 
         #timer-fill {
             height: 100%;
-            background: #00ffff;
+            background: #0ff;
             width: 0%;
+            box-shadow: 0 0 10px #0ff;
+        }
+
+        #canvas-container {
+            position: relative;
+            border: 2px solid #222;
         }
 
         #msg-overlay {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.9);
-            padding: 20px;
-            border: 2px solid #ff00ff;
-            text-align: center;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
             display: none;
-            z-index: 10;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
         }
 
-        .instruction {
-            margin-top: 10px;
-            color: #666;
-            font-size: 12px;
+        .btn {
+            background: #0ff;
+            color: #000;
+            border: none;
+            padding: 10px 25px;
+            font-family: 'Fira Code';
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
         }
+
+        .stat { color: #555; font-size: 12px; }
+        .stat span { color: #0ff; }
     </style>
 </head>
 <body>
 
 <div id="ui">
-    <div>Timeline: <span id="loop-count">1</span></div>
-    <div style="width: 300px;">
-        Loop Progress
-        <div class="timer-bar"><div id="timer-fill"></div></div>
+    <div class="stat">GEN_ITERATION: <span id="loop-count">1</span></div>
+    <div>
+        <div style="font-size: 10px; margin-bottom: 2px;">TIMELINE_STABILITY</div>
+        <div class="meter"><div id="timer-fill"></div></div>
     </div>
-    <div>Anomalies: <span id="paradox-warn">Stable</span></div>
+    <div class="stat">STATUS: <span id="status">STABLE</span></div>
 </div>
 
-<div id="game-container">
+<div id="canvas-container">
     <div id="msg-overlay">
-        <h2 id="msg-title">PARADOX DETECTED</h2>
-        <p id="msg-body">You collided with your past self.</p>
-        <button onclick="resetGame()" style="background:#ff00ff; border:none; color:#000; padding:10px 20px; cursor:pointer; font-family:'Fira Code'; font-weight:bold;">RE-SYNCHRONIZE</button>
+        <h1 id="msg-title" style="color:#f0f">PARADOX DETECTED</h1>
+        <p id="msg-body">You collided with a past iteration.</p>
+        <button class="btn" onclick="resetGame()">RE-SYNC TIMELINE</button>
     </div>
     <canvas id="c"></canvas>
 </div>
 
-<div class="instruction">WASD/ARROWS to Move // SPACE to Jump // Don't touch your previous "Ghosts"</div>
+<div style="margin-top: 20px; color: #444; font-size: 11px; text-align: center;">
+    WASD TO MOVE // SPACE TO JUMP<br>
+    USE YOUR PAST GHOSTS AS PLATFORMS TO REACH THE TOP
+</div>
 
 <script>
     const canvas = document.getElementById('c');
     const ctx = canvas.getContext('2d');
-    
     canvas.width = 800;
-    canvas.height = 400;
+    canvas.height = 450;
 
-    // Constants
-    const LOOP_DURATION = 300; // frames (~5 seconds)
+    // Config
+    const LOOP_FRAMES = 240; // 4 seconds @ 60fps
     const GRAVITY = 0.5;
-    const JUMP_FORCE = -10;
-    const SPEED = 4;
+    const JUMP = -11;
+    const SPEED = 5;
+    const SPAWN_IMMUNITY = 60; // 1 second of no-collision at start
 
-    // Game State
-    let currentFrame = 0;
-    let loopCount = 1;
+    // State
+    let frame = 0;
+    let iterations = 1;
+    let ghosts = []; // Array of arrays of {x, y}
     let playing = true;
+    let player = { x: 50, y: 380, vx: 0, vy: 0, w: 24, h: 24, history: [] };
     
-    let player = {
-        x: 50, y: 350, vx: 0, vy: 0, w: 20, h: 20,
-        history: [] // Stores {x, y} for every frame of the loop
-    };
-
-    let ghosts = []; // Stores arrays of histories from previous loops
-    let target = { x: 730, y: 100, w: 40, h: 40 };
-    let obstacles = [
-        { x: 0, y: 380, w: 800, h: 20 }, // Floor
-        { x: 300, y: 250, w: 200, h: 20 }, // Mid platform
-        { x: 650, y: 150, w: 150, h: 20 }  // High platform
+    const platforms = [
+        { x: 0, y: 430, w: 800, h: 20 },   // Floor
+        { x: 100, y: 320, w: 150, h: 15 }, // Step 1
+        { x: 550, y: 220, w: 250, h: 15 }, // Step 2 (Goal side)
+        { x: 300, y: 120, w: 200, h: 15 }  // Goal Platform
     ];
 
+    const goal = { x: 380, y: 70, w: 40, h: 40 };
+
     const keys = {};
-    window.onkeydown = (e) => keys[e.code] = true;
-    window.onkeyup = (e) => keys[e.code] = false;
+    window.onkeydown = e => keys[e.code] = true;
+    window.onkeyup = e => keys[e.code] = false;
 
     function resetGame() {
-        player.x = 50; player.y = 350;
-        player.vx = 0; player.vy = 0;
-        player.history = [];
+        iterations = 1;
         ghosts = [];
-        loopCount = 1;
-        currentFrame = 0;
-        playing = true;
+        startLoop();
         document.getElementById('msg-overlay').style.display = 'none';
-        document.getElementById('loop-count').innerText = loopCount;
-        loop();
+        document.getElementById('status').innerText = "STABLE";
+        document.getElementById('status').style.color = "#0ff";
     }
 
-    function startNewLoop() {
-        ghosts.push([...player.history]);
-        player.history = [];
+    function startLoop() {
+        if (player.history.length > 0) ghosts.push([...player.history]);
         player.x = 50;
-        player.y = 350;
+        player.y = 380;
         player.vx = 0;
         player.vy = 0;
-        currentFrame = 0;
-        loopCount++;
-        document.getElementById('loop-count').innerText = loopCount;
+        player.history = [];
+        frame = 0;
+        playing = true;
+        document.getElementById('loop-count').innerText = iterations;
     }
 
-    function checkCollision(a, b) {
-        return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    function rectIntersect(r1, r2) {
+        return r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y;
     }
 
-    function loop() {
+    function update() {
         if (!playing) return;
 
-        // Update Physics
-        if (keys['ArrowLeft'] || keys['KeyA']) player.vx = -SPEED;
-        else if (keys['ArrowRight'] || keys['KeyD']) player.vx = SPEED;
+        // Input
+        if (keys['KeyA'] || keys['ArrowLeft']) player.vx = -SPEED;
+        else if (keys['KeyD'] || keys['ArrowRight']) player.vx = SPEED;
         else player.vx *= 0.8;
 
         player.vy += GRAVITY;
@@ -173,77 +172,106 @@
         player.y += player.vy;
 
         // Platform Collisions
-        obstacles.forEach(o => {
-            if (checkCollision(player, o)) {
-                if (player.vy > 0 && player.y < o.y) {
-                    player.y = o.y - player.h;
+        platforms.forEach(p => {
+            if (rectIntersect(player, p)) {
+                if (player.vy > 0 && player.y + player.h - player.vy <= p.y) {
+                    player.y = p.y - player.h;
                     player.vy = 0;
-                    if (keys['Space'] || keys['ArrowUp'] || keys['KeyW']) player.vy = JUMP_FORCE;
+                    if (keys['Space'] || keys['KeyW'] || keys['ArrowUp']) player.vy = JUMP;
                 } else {
+                    // Side collision
                     player.x -= player.vx;
+                    player.vx = 0;
                 }
             }
         });
 
-        // Record History
+        // Record history
         player.history.push({ x: player.x, y: player.y });
 
-        // Draw
+        // Draw background
         ctx.fillStyle = '#050508';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Draw Obstacles
-        ctx.fillStyle = '#1a1a2e';
-        obstacles.forEach(o => ctx.fillRect(o.x, o.y, o.w, o.h));
-
-        // Draw Target
-        ctx.fillStyle = '#00ff00';
+        // Draw Goal
+        ctx.fillStyle = '#0ff';
         ctx.shadowBlur = 15;
-        ctx.shadowColor = '#00ff00';
-        ctx.fillRect(target.x, target.y, target.w, target.h);
+        ctx.shadowColor = '#0ff';
+        ctx.fillRect(goal.x, goal.y, goal.w, goal.h);
         ctx.shadowBlur = 0;
 
-        // Draw Ghosts and Check Paradox
-        ghosts.forEach((ghostPath, index) => {
-            const pos = ghostPath[currentFrame];
-            if (pos) {
-                // Ghost is a platform!
-                ctx.fillStyle = `rgba(255, 0, 255, ${0.2 + (index * 0.1)})`;
-                ctx.fillRect(pos.x, pos.y, player.w, player.h);
+        // Draw Platforms
+        ctx.fillStyle = '#151525';
+        platforms.forEach(p => ctx.fillRect(p.x, p.y, p.w, p.h));
 
-                // Paradox check: If you touch a ghost, you die
-                let ghostObj = { x: pos.x, y: pos.y, w: player.w, h: player.h };
-                if (checkCollision(player, ghostObj)) {
-                    playing = false;
-                    document.getElementById('msg-overlay').style.display = 'block';
+        // Draw Ghosts & Physics
+        ghosts.forEach((path, i) => {
+            const gPos = path[frame];
+            if (gPos) {
+                const ghostRect = { x: gPos.x, y: gPos.y, w: player.w, h: player.h };
+                
+                // Draw ghost
+                ctx.fillStyle = `rgba(255, 0, 255, ${0.2 + (i * 0.1)})`;
+                ctx.fillRect(gPos.x, gPos.y, player.w, player.h);
+
+                // GHOST AS PLATFORM (Head bounce)
+                if (rectIntersect(player, ghostRect)) {
+                    // Only collide if not in spawn immunity
+                    if (frame > SPAWN_IMMUNITY) {
+                        if (player.vy > 0 && player.y + player.h - player.vy <= gPos.y + 5) {
+                            player.y = gPos.y - player.h;
+                            player.vy = 0;
+                            if (keys['Space'] || keys['KeyW'] || keys['ArrowUp']) player.vy = JUMP;
+                        } else {
+                            // Paradox!
+                            triggerParadox();
+                        }
+                    }
                 }
             }
         });
 
         // Draw Player
-        ctx.fillStyle = '#00ffff';
+        ctx.fillStyle = '#fff';
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#fff';
         ctx.fillRect(player.x, player.y, player.w, player.h);
+        ctx.shadowBlur = 0;
 
-        // Target Check
-        if (checkCollision(player, target)) {
-            playing = false;
-            document.getElementById('msg-title').innerText = "TIMELINE SECURED";
-            document.getElementById('msg-body').innerText = `Completed in ${loopCount} loops!`;
-            document.getElementById('msg-overlay').style.display = 'block';
+        // Goal Check
+        if (rectIntersect(player, goal)) {
+            win();
         }
 
-        // Timer
-        currentFrame++;
-        document.getElementById('timer-fill').style.width = (currentFrame / LOOP_DURATION * 100) + '%';
-        
-        if (currentFrame >= LOOP_DURATION) {
-            startNewLoop();
+        // Loop Management
+        frame++;
+        document.getElementById('timer-fill').style.width = (frame / LOOP_FRAMES * 100) + '%';
+        if (frame >= LOOP_FRAMES) {
+            iterations++;
+            startLoop();
         }
 
-        requestAnimationFrame(loop);
+        requestAnimationFrame(update);
     }
 
-    loop();
+    function triggerParadox() {
+        playing = false;
+        document.getElementById('msg-title').innerText = "PARADOX DETECTED";
+        document.getElementById('msg-title').style.color = "#f0f";
+        document.getElementById('msg-overlay').style.display = 'flex';
+        document.getElementById('status').innerText = "UNSTABLE";
+        document.getElementById('status').style.color = "#f0f";
+    }
+
+    function win() {
+        playing = false;
+        document.getElementById('msg-title').innerText = "TIMELINE STABILIZED";
+        document.getElementById('msg-title').style.color = "#0ff";
+        document.getElementById('msg-body').innerText = `Success in ${iterations} Iterations.`;
+        document.getElementById('msg-overlay').style.display = 'flex';
+    }
+
+    update();
 </script>
 </body>
 </html>
