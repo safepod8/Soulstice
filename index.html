@@ -2,325 +2,379 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BIO-SIGNAL: TERMINAL</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FLICK-DRIVE: NEON REAP</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@900&display=swap');
         
-        :root {
-            --neon-green: #39ff14;
-            --dark-flesh: #1a0f0f;
-            --crt-glow: rgba(57, 255, 20, 0.15);
-        }
-
         body {
             margin: 0;
-            background: #050505;
-            color: var(--neon-green);
-            font-family: 'VT323', monospace;
+            background: #020205;
+            color: #fff;
+            font-family: 'Orbitron', sans-serif;
+            overflow: hidden;
+            touch-action: none;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
-            overflow: hidden;
-            user-select: none;
         }
 
-        #terminal {
-            width: 800px;
-            height: 500px;
-            background: #0a0a0a;
-            border: 4px solid #333;
-            box-shadow: 0 0 50px rgba(0,0,0,1), inset 0 0 100px #1a0f0f;
-            display: grid;
-            grid-template-columns: 1fr 280px;
-            padding: 20px;
-            gap: 20px;
-            position: relative;
-        }
-
-        /* Scanline Overlay */
-        #terminal::after {
-            content: " ";
+        #ui {
             position: absolute;
-            top: 0; left: 0; bottom: 0; right: 0;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
-                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-            background-size: 100% 4px, 3px 100%;
+            top: 20px;
+            left: 20px;
             pointer-events: none;
             z-index: 10;
         }
 
-        .screen {
+        .score-val { font-size: 32px; color: #0ff; text-shadow: 0 0 10px #0ff; }
+        .combo-val { font-size: 18px; color: #f0f; }
+
+        canvas {
+            display: block;
             background: #000;
-            border: 2px solid #222;
-            position: relative;
-            overflow: hidden;
+            box-shadow: 0 0 100px rgba(0, 255, 255, 0.1);
+            cursor: crosshair;
         }
 
-        #main-scope {
-            height: 300px;
-            box-shadow: inset 0 0 20px var(--crt-glow);
-        }
-
-        #control-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            padding: 10px;
-            background: #111;
-            border: 1px solid #333;
-        }
-
-        .status-box {
-            border: 1px solid #444;
-            padding: 10px;
-            font-size: 18px;
-        }
-
-        .danger { color: #ff3131; text-shadow: 0 0 10px #ff3131; }
-
-        .slider-group {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        input[type=range] {
-            appearance: none;
-            background: #222;
-            height: 10px;
-            border: 1px solid var(--neon-green);
-        }
-
-        input[type=range]::-webkit-slider-thumb {
-            appearance: none;
-            width: 15px;
-            height: 25px;
-            background: var(--neon-green);
-            cursor: pointer;
-            box-shadow: 0 0 10px var(--neon-green);
-        }
-
-        #log {
-            height: 120px;
-            font-size: 14px;
-            padding: 5px;
-            overflow-y: hidden;
-            border-top: 1px solid #333;
-            color: #666;
-        }
-
-        .heart {
-            display: inline-block;
-            animation: pulse 0.6s infinite;
-        }
-
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.2); color: #ff3131; }
-            100% { transform: scale(1); }
-        }
-
-        #noise {
+        #overlay {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: url('https://upload.wikimedia.org/wikipedia/commons/7/76/White_noise.png');
-            opacity: 0.05;
-            pointer-events: none;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
         }
+
+        .btn {
+            background: #0ff;
+            color: #000;
+            border: none;
+            padding: 15px 40px;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 900;
+            font-size: 20px;
+            cursor: pointer;
+            transition: 0.2s;
+            clip-path: polygon(10% 0, 100% 0, 90% 100%, 0% 100%);
+        }
+        .btn:hover { background: #fff; transform: scale(1.1); }
+
+        #upgrade-screen {
+            display: none;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80%;
+            max-width: 400px;
+            background: #050510;
+            border: 2px solid #0ff;
+            padding: 20px;
+            z-index: 200;
+        }
+
+        .upgrade-opt {
+            background: #111;
+            border: 1px solid #333;
+            padding: 15px;
+            margin: 10px 0;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .upgrade-opt:hover { border-color: #0ff; background: #0a1a1a; }
     </style>
 </head>
 <body>
 
-<div id="terminal">
-    <div id="noise"></div>
-    
-    <div class="left-col">
-        <div class="screen" id="main-scope">
-            <canvas id="scopeCanvas"></canvas>
-        </div>
-        <div id="log">
-            > INITIALIZING NEURAL LINK...<br>
-            > ORGANIC MASS DETECTED IN SECTOR 4...<br>
-            > WARNING: SYNC LEVELS DROPPING...
-        </div>
-    </div>
-
-    <div id="control-panel">
-        <div class="status-box">
-            STABILITY: <span id="stability">100%</span>
-            <div id="integrity-bar" style="width:100%; height:4px; background:#222; margin-top:5px;">
-                <div id="integrity-fill" style="width:100%; height:100%; background:var(--neon-green);"></div>
-            </div>
-        </div>
-
-        <div class="slider-group">
-            <label>PULSE FREQUENCY</label>
-            <input type="range" id="freq" min="0.01" max="0.2" step="0.001" value="0.05">
-        </div>
-
-        <div class="slider-group">
-            <label>AMPLITUDE DEPTH</label>
-            <input type="range" id="amp" min="10" max="100" step="1" value="50">
-        </div>
-
-        <div class="slider-group">
-            <label>PHASE SHIFT</label>
-            <input type="range" id="phase" min="0" max="6.28" step="0.01" value="0">
-        </div>
-
-        <div id="alert-zone" style="margin-top: auto; padding: 10px; border: 1px dashed #444; text-align: center;">
-            <span class="heart">❤</span> <span id="sync-label">BIO-SYNC: 0%</span>
-        </div>
-        
-        <button id="reset-btn" style="display:none; background: #ff3131; border:none; color:white; font-family:'VT323'; cursor:pointer; padding:10px;">RE-INITIALIZE SYSTEM</button>
-    </div>
+<div id="ui">
+    <div class="score-val" id="score">0</div>
+    <div class="combo-val" id="combo">COMBO x1</div>
 </div>
 
-<script>
-    const canvas = document.getElementById('scopeCanvas');
-    const ctx = canvas.getContext('2d');
-    const logEl = document.getElementById('log');
-    
-    // UI Refs
-    const freqIn = document.getElementById('freq');
-    const ampIn = document.getElementById('amp');
-    const phaseIn = document.getElementById('phase');
-    const stabilityEl = document.getElementById('stability');
-    const integrityFill = document.getElementById('integrity-fill');
-    const syncLabel = document.getElementById('sync-label');
+<div id="overlay">
+    <h1 style="font-size: 60px; margin: 0; color: #fff;">FLICK<span style="color:#0ff">DRIVE</span></h1>
+    <p style="color: #666; margin-bottom: 30px;">DRAG & RELEASE TO LAUNCH. VELOCITY IS YOUR BLADE.</p>
+    <button class="btn" onclick="initGame()">INITIATE REAP</button>
+</div>
 
+<div id="upgrade-screen">
+    <h2 style="color:#0ff; margin-top:0">SELECT AUGMENT</h2>
+    <div id="upgrade-list"></div>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    
     let w, h;
     function resize() {
-        w = canvas.width = canvas.parentElement.clientWidth;
-        h = canvas.height = canvas.parentElement.clientHeight;
+        w = canvas.width = window.innerWidth;
+        h = canvas.height = window.innerHeight;
     }
     window.addEventListener('resize', resize);
     resize();
 
-    // Game Variables
-    let stability = 100;
-    let time = 0;
-    let playing = true;
+    // Game Constants
+    const FRICTION = 0.97;
+    const MIN_VELOCITY = 0.5;
+    const MAX_FLICK_FORCE = 35;
+    const ENEMY_SPAWN_BASE = 2000;
 
-    // Target (The creature's signal)
-    let targetSignal = {
-        freq: 0.08,
-        amp: 70,
-        phase: 1.5
+    // Game State
+    let score = 0;
+    let combo = 1;
+    let comboTimer = 0;
+    let wave = 1;
+    let playing = false;
+    let lastSpawn = 0;
+    let frame = 0;
+
+    // Input State
+    let isDragging = false;
+    let startX, startY;
+    let currentX, currentY;
+
+    // Objects
+    const player = {
+        x: w/2, y: h/2, vx: 0, vy: 0, r: 15,
+        color: '#0ff',
+        trail: [],
+        upgrades: { bounce: false, fire: false, size: 1, split: false }
     };
 
-    function changeTarget() {
-        targetSignal.freq = 0.02 + Math.random() * 0.15;
-        targetSignal.amp = 20 + Math.random() * 70;
-        targetSignal.phase = Math.random() * 6;
-        addLog("> NEURAL SHIFT DETECTED...");
+    let enemies = [];
+    let particles = [];
+    let enemyProjectiles = [];
+
+    // --- INPUT HANDLERS ---
+    canvas.addEventListener('mousedown', startDrag);
+    canvas.addEventListener('mousemove', moveDrag);
+    canvas.addEventListener('mouseup', endDrag);
+    canvas.addEventListener('touchstart', (e) => startDrag(e.touches[0]));
+    canvas.addEventListener('touchmove', (e) => moveDrag(e.touches[0]));
+    canvas.addEventListener('touchend', endDrag);
+
+    function startDrag(e) {
+        if (!playing) return;
+        isDragging = true;
+        const rect = canvas.getBoundingClientRect();
+        startX = e.clientX - rect.left;
+        startY = e.clientY - rect.top;
+        currentX = startX;
+        currentY = startY;
     }
 
-    function addLog(msg) {
-        const div = document.createElement('div');
-        div.innerHTML = msg;
-        logEl.prepend(div);
+    function moveDrag(e) {
+        if (!isDragging) return;
+        const rect = canvas.getBoundingClientRect();
+        currentX = e.clientX - rect.left;
+        currentY = e.clientY - rect.top;
     }
 
-    setInterval(() => {
-        if(playing) changeTarget();
-    }, 8000);
-
-    function draw() {
-        if(!playing) return;
+    function endDrag() {
+        if (!isDragging) return;
+        isDragging = false;
         
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+        // Calculate vector
+        let dx = startX - currentX;
+        let dy = startY - currentY;
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        let force = Math.min(dist * 0.2, MAX_FLICK_FORCE);
+        let angle = Math.atan2(dy, dx);
+
+        player.vx = Math.cos(angle) * force;
+        player.vy = Math.sin(angle) * force;
+        
+        // Visual kick
+        createParticles(player.x, player.y, '#fff', 5);
+    }
+
+    function initGame() {
+        document.getElementById('overlay').style.display = 'none';
+        playing = true;
+        score = 0;
+        combo = 1;
+        enemies = [];
+        player.x = w/2; player.y = h/2;
+        player.vx = 0; player.vy = 0;
+        loop();
+    }
+
+    function spawnEnemy() {
+        const side = Math.floor(Math.random() * 4);
+        let ex, ey;
+        if (side === 0) { ex = Math.random() * w; ey = -50; }
+        else if (side === 1) { ex = w + 50; ey = Math.random() * h; }
+        else if (side === 2) { ex = Math.random() * w; ey = h + 50; }
+        else { ex = -50; ey = Math.random() * h; }
+
+        enemies.push({
+            x: ex, y: ey,
+            r: 20,
+            hp: 1,
+            type: Math.random() > 0.8 ? 'FAST' : 'BASIC',
+            color: '#f0f'
+        });
+    }
+
+    function createParticles(x, y, color, count) {
+        for(let i=0; i<count; i++) {
+            particles.push({
+                x, y,
+                vx: (Math.random()-0.5) * 10,
+                vy: (Math.random()-0.5) * 10,
+                life: 1,
+                color
+            });
+        }
+    }
+
+    function loop() {
+        if (!playing) return;
+        frame++;
+        ctx.fillStyle = 'rgba(2, 2, 5, 0.3)';
         ctx.fillRect(0, 0, w, h);
-        
-        time += 0.1;
-        
-        const userFreq = parseFloat(freqIn.value);
-        const userAmp = parseFloat(ampIn.value);
-        const userPhase = parseFloat(phaseIn.value);
 
-        // Calculate Sync
-        const fDiff = Math.abs(userFreq - targetSignal.freq) / 0.2;
-        const aDiff = Math.abs(userAmp - targetSignal.amp) / 100;
-        const pDiff = Math.abs(Math.sin(userPhase) - Math.sin(targetSignal.phase)) / 2;
-        
-        const syncScore = Math.max(0, 100 - (fDiff * 40 + aDiff * 40 + pDiff * 20));
-        syncLabel.innerText = `BIO-SYNC: ${Math.floor(syncScore)}%`;
-
-        if (syncScore < 70) {
-            stability -= 0.1;
-            ctx.fillStyle = 'rgba(255, 0, 0, 0.05)';
-            ctx.fillRect(0,0,w,h);
-        } else {
-            stability = Math.min(100, stability + 0.05);
+        // Spawn Logic
+        if (Date.now() - lastSpawn > Math.max(500, ENEMY_SPAWN_BASE - (score/10))) {
+            spawnEnemy();
+            lastSpawn = Date.now();
         }
 
-        stabilityEl.innerText = `${Math.floor(stability)}%`;
-        integrityFill.style.width = `${stability}%`;
-        if(stability < 30) {
-            stabilityEl.className = 'danger';
-            if(Math.random() > 0.95) addLog("<span class='danger'>> CRITICAL: SUBJECT BREACH IMMINENT</span>");
-        } else {
-            stabilityEl.className = '';
+        // Combo Logic
+        if (comboTimer > 0) comboTimer--;
+        else combo = 1;
+
+        // Player Physics
+        player.x += player.vx;
+        player.y += player.vy;
+        player.vx *= FRICTION;
+        player.vy *= FRICTION;
+
+        // Wall Bounce
+        if (player.x < player.r || player.x > w - player.r) {
+            player.vx *= -0.8;
+            player.x = player.x < player.r ? player.r : w - player.r;
+        }
+        if (player.y < player.r || player.y > h - player.r) {
+            player.vy *= -0.8;
+            player.y = player.y < player.r ? player.r : h - player.r;
         }
 
-        if(stability <= 0) gameOver();
+        // Trail
+        player.trail.push({x: player.x, y: player.y});
+        if (player.trail.length > 10) player.trail.shift();
 
-        // Draw Waves
-        // 1. Background Grid
-        ctx.strokeStyle = '#111';
-        ctx.lineWidth = 1;
-        for(let i=0; i<w; i+=40) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,h); ctx.stroke(); }
-        for(let i=0; i<h; i+=40) { ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(w,i); ctx.stroke(); }
+        // Draw Drag Line
+        if (isDragging) {
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y);
+            let dx = startX - currentX;
+            let dy = startY - currentY;
+            ctx.lineTo(player.x + dx, player.y + dy);
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
 
-        // 2. Target Wave (Red/Organic)
+        // Draw Trail
         ctx.beginPath();
-        ctx.strokeStyle = '#411';
-        ctx.lineWidth = 3;
-        for(let x=0; x<w; x++) {
-            const y = h/2 + Math.sin(x * targetSignal.freq + time + targetSignal.phase) * targetSignal.amp;
-            if(x === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-        }
+        player.trail.forEach((p, i) => {
+            ctx.lineTo(p.x, p.y);
+        });
+        ctx.strokeStyle = player.color;
+        ctx.lineWidth = 4;
         ctx.stroke();
 
-        // 3. User Wave (Green/Digital)
+        // Draw Player
         ctx.beginPath();
-        ctx.strokeStyle = '#39ff14';
-        ctx.lineWidth = 2;
-        ctx.shadowBlur = 5;
-        ctx.shadowColor = '#39ff14';
-        for(let x=0; x<w; x++) {
-            const y = h/2 + Math.sin(x * userFreq + time + userPhase) * userAmp;
-            if(x === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-        }
-        ctx.stroke();
+        ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
+        ctx.fillStyle = player.color;
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = player.color;
+        ctx.fill();
         ctx.shadowBlur = 0;
 
-        requestAnimationFrame(draw);
+        // Enemies
+        const pSpeed = Math.sqrt(player.vx*player.vx + player.vy*player.vy);
+        
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            const e = enemies[i];
+            
+            // Move enemy toward player
+            let angle = Math.atan2(player.y - e.y, player.x - e.x);
+            let speed = e.type === 'FAST' ? 2.5 : 1.2;
+            e.x += Math.cos(angle) * speed;
+            e.y += Math.sin(angle) * speed;
+
+            // Collision check
+            let dist = Math.hypot(player.x - e.x, player.y - e.y);
+            if (dist < player.r + e.r) {
+                if (pSpeed > 6) { // Killing speed
+                    createParticles(e.x, e.y, '#f0f', 15);
+                    enemies.splice(i, 1);
+                    score += 100 * combo;
+                    combo++;
+                    comboTimer = 120;
+                    document.getElementById('score').innerText = score;
+                    document.getElementById('combo').innerText = `COMBO x${combo}`;
+                    
+                    // Kill impact - preserve some momentum but add slight "hit stop"
+                    player.vx *= 1.1; 
+                    player.vy *= 1.1;
+                } else {
+                    // Death
+                    gameOver();
+                }
+            }
+
+            // Draw Enemy
+            ctx.beginPath();
+            ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+            ctx.fillStyle = '#111';
+            ctx.strokeStyle = e.color;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.fill();
+        }
+
+        // Particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.02;
+            if (p.life <= 0) particles.splice(i, 1);
+            else {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, 4, 4);
+            }
+        }
+        ctx.globalAlpha = 1;
+
+        requestAnimationFrame(loop);
     }
 
     function gameOver() {
         playing = false;
-        ctx.fillStyle = '#1a0f0f';
-        ctx.fillRect(0, 0, w, h);
-        ctx.fillStyle = '#ff3131';
-        ctx.font = '40px VT323';
-        ctx.textAlign = 'center';
-        ctx.fillText("SUBJECT BREACHED", w/2, h/2);
-        addLog("<span class='danger'>> TERMINAL OFFLINE. PERSONNEL LOSS DETECTED.</span>");
-        document.getElementById('reset-btn').style.display = 'block';
+        document.getElementById('overlay').style.display = 'flex';
+        document.getElementById('overlay').querySelector('h1').innerText = "SYSTEM CRASH";
+        document.getElementById('overlay').querySelector('h1').style.color = "#f0f";
+        document.getElementById('overlay').querySelector('p').innerText = `FINAL SCORE: ${score}`;
+        document.getElementById('overlay').querySelector('button').innerText = "REBOOT";
     }
 
-    document.getElementById('reset-btn').addEventListener('click', () => {
-        stability = 100;
-        playing = true;
-        document.getElementById('reset-btn').style.display = 'none';
-        logEl.innerHTML = "> SYSTEM REBOOTING...";
-        draw();
-    });
-
-    draw();
+    // Initial draw
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0,0,w,h);
 </script>
 </body>
 </html>
