@@ -1,2 +1,2 @@
-# Soulstice
+# Soulstotion
 A pixel bossfight game
